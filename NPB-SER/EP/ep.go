@@ -30,7 +30,7 @@ func Ep() {
 	if params.EmptyTag {
 		fmt.Println("To make a NAS benchmark type ")
 		fmt.Println("\t go build -o ep -tags=<CLASS>")
-		fmt.Println("where: <class> is \"CLASS_S\", \"CLASS_W\", \"CLASS_A\", \"CLASS_B\", \"CLASS_C\", \"CLASS_D\" or \"CLASS_E\"")
+		fmt.Println("where: <class> is \"S\", \"W\", \"A\", \"B\", \"C\", \"D\" or \"E\"")
 		return
 	}
 	var Mops, t1, t2, t3, t4, x1, x2 float64
