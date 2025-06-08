@@ -1,9 +1,9 @@
 package main
 
 import (
-	"NPB-SER/EP/params"
-	"NPB-SER/common"
 	"fmt"
+	"github.com/iyisakuma/NPB-GO/NPB-SER/EP/params"
+	"github.com/iyisakuma/NPB-GO/NPB-SER/common"
 	"math"
 	"os"
 	"strings"
