@@ -6,6 +6,6 @@ const (
 	CLASS           = ""
 	M               = 20
 	EmptyTag        = true
-	SX_VERIFY_VALUE = 0.0
-	SY_VERIFY_VALUE = 0.0
+	SX_VERIFY_VALUE = 1.0
+	SY_VERIFY_VALUE = 1.0
 )
