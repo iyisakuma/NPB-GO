@@ -79,7 +79,7 @@ func Ep() {
 	common.TimerClear(0)
 	common.TimerClear(1)
 	common.TimerClear(2)
-	common.TimerClear(0)
+	common.TimerStart(0)
 
 	t1 = A
 	common.Vranlc(0, &t1, A, x)
@@ -90,7 +90,6 @@ func Ep() {
 	an = t1
 	tt = S
 	gc = 0.0
-	sx = 0.0
 	sx = 0.0
 	sy = 0.0
 
@@ -128,7 +127,7 @@ func Ep() {
 		}
 		common.Vranlc(2*NK, &t1, A, x)
 		if timers_enabled {
-			common.TimerStart(2)
+			common.TimerStop(2)
 		}
 
 		/*

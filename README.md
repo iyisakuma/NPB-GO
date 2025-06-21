@@ -4,23 +4,27 @@ NAS Parallel Benchmarks in Go
 ## Project structure
 
 Each directory is independent and contains its own implemented version of the kernels
-
-- `NPB-SER/` — Contains the sequential version of the NAS Parallel Benchmarks.
+- `NPB-CHANNEL/` — Contains the parallel version of the NAS Parallel Benchmarks.
+    - `bin/` — Folder where compiled executables are stored.
     - `common/` — Common utilities used by the benchmarks (random number generators, timers, result printing, etc.).
     - `EP/` — EP (Embarrassingly Parallel) benchmark.
     - Other kernels will be added progressively (`IS/`, `MG/`, etc.).
-- `bin/` — Folder where compiled executables are stored.
+  
+- `NPB-SER/` — Contains the sequential version of the NAS Parallel Benchmarks.
+    - `bin/` — Folder where compiled executables are stored.
+    - `common/` — Common utilities used by the benchmarks (random number generators, timers, result printing, etc.).
+    - `EP/` — EP (Embarrassingly Parallel) benchmark.
+    - Other kernels will be added progressively (`IS/`, `MG/`, etc.).
 
 ## Software requirements
 
 - Go **1.24.2** or higher, built for `linux/amd64`.
 
 
-
-
 ## How to build
 
-The project provides a `Makefile` to simplify the build process.
+The project includes a Makefile to streamline the build process. Simply choose the desired NPB version 
+and follow the instructions above.
 
 ### Building a specific benchmark
 
@@ -52,7 +56,7 @@ make run KERNEL=<BENCHMARK> CLASS=<CLASS>
 ```
 
 
-Eample:
+Example:
 
 make run KERNEL=EP CLASS=S
 

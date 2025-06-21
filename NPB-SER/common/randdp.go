@@ -16,19 +16,38 @@ func init() {
 		t23 = math.Pow(2.0, 23.0)
 		t46 = t23 * t23
 	} else {
-		r23 = 1.0
-		for i := 0; i < 23; i++ {
-			r23 *= 0.5
-		}
+		r23 = (0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5 * 0.5)
 		r46 = r23 * r23
 
-		t23 = 1.0
-		for i := 0; i < 23; i++ {
-			t23 *= 2.0
-		}
+		t23 = (2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0 * 2.0)
 		t46 = t23 * t23
 	}
 }
+
+/*
+ * ---------------------------------------------------------------------
+ *
+ * this routine returns a uniform pseudorandom double precision number in the
+ * range (0, 1) by using the linear congruential generator
+ *
+ * x_{k+1} = a x_k  (mod 2^46)
+ *
+ * where 0 < x_k < 2^46 and 0 < a < 2^46. this scheme generates 2^44 numbers
+ * before repeating. the argument A is the same as 'a' in the above formula,
+ * and X is the same as x_0.  A and X must be odd double precision integers
+ * in the range (1, 2^46). the returned value RANDLC is normalized to be
+ * between 0 and 1, i.e. RANDLC = 2^(-46) * x_1.  X is updated to contain
+ * the new seed x_1, so that subsequent calls to RANDLC using the same
+ * arguments will generate a continuous sequence.
+ *
+ * this routine should produce the same results on any computer with at least
+ * 48 mantissa bits in double precision floating point data.  On 64 bit
+ * systems, double precision should be disabled.
+ *
+ * David H. Bailey, October 26, 1990
+ *
+ * ---------------------------------------------------------------------
+ */
 func Randlc(x *float64, a float64) float64 {
 	var t1, t2, t3, t4, a1, a2, x1, x2, z float64
 
@@ -50,6 +69,30 @@ func Randlc(x *float64, a float64) float64 {
 	return r46 * (*x)
 }
 
+/*
+ * ---------------------------------------------------------------------
+ *
+ * this routine generates N uniform pseudorandom double precision numbers in
+ * the range (0, 1) by using the linear congruential generator
+ *
+ * x_{k+1} = a x_k  (mod 2^46)
+ *
+ * where 0 < x_k < 2^46 and 0 < a < 2^46. this scheme generates 2^44 numbers
+ * before repeating. the argument A is the same as 'a' in the above formula,
+ * and X is the same as x_0. A and X must be odd double precision integers
+ * in the range (1, 2^46). the N results are placed in Y and are normalized
+ * to be between 0 and 1. X is updated to contain the new seed, so that
+ * subsequent calls to VRANLC using the same arguments will generate a
+ * continuous sequence.  if N is zero, only initialization is performed, and
+ * the variables X, A and Y are ignored.
+ *
+ * this routine is the standard version designed for scalar or RISC systems.
+ * however, it should produce the same results on any single processor
+ * computer with at least 48 mantissa bits in double precision floating point
+ * data. on 64 bit systems, double precision should be disabled.
+ *
+ * ---------------------------------------------------------------------
+ */
 func Vranlc(n int, xSeed *float64, a float64, y []float64) {
 	var t1, t2, t3, t4, a1, a2, x1, x2, z float64
 	x := *xSeed
