@@ -190,7 +190,7 @@ func EpParallel() {
 		q[i] = 0.0
 	}
 
-	numCPUs := runtime.NumCPU()
+	numCPUs := 128
 	runtime.GOMAXPROCS(numCPUs)
 	var wg sync.WaitGroup
 	partialResultsChan := make(chan WorkerResults, numCPUs)

@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="c1cd5d42-2770-42fd-a828-250bb582dac8" name="Changes" comment="fix some bugs in serial version of EP">
+      <change beforePath="$PROJECT_DIR$/NPB-CHANNEL/EP/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/NPB-CHANNEL/EP/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NPB-SER/EP/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/NPB-SER/EP/main.go" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Go File" />
+        <option value="Go Application" />
+      </list>
+    </option>
+  </component>
+  <component name="GOROOT" url="file:///usr/local/go" />
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="NPB-CHANNEL" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+    <option name="UPDATE_TYPE" value="REBASE" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;iyisakuma&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/iyisakuma/NPB-GO.git&quot;,
+    &quot;accountId&quot;: &quot;29fb8772-5b64-4932-ad9b-f1b7ceffaacd&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 3
+}</component>
+  <component name="ProjectId" id="2y1LhxxSPSU5t51tl1dNxzn91r8" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;DefaultGoTemplateProperty&quot;: &quot;Go Application&quot;,
+    &quot;Go Build.go build NPB-SER/EP.executor&quot;: &quot;Run&quot;,
+    &quot;Makefile Target.EP.executor&quot;: &quot;Run&quot;,
+    &quot;Makefile Target.ep.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginOnboarding&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginStorageMigration&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
+    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/touch/workspace/go/sinais&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;
+  }
+}</component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/NPB-GOROUTINE" />
+      <recent name="$PROJECT_DIR$/NPB-SER/EP/params" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/NPB-SER" />
+      <recent name="$PROJECT_DIR$/NPB-SER/EP" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Makefile Target.ep">
+    <configuration name="go build NPB-SER/EP" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="NPB-GO" />
+      <working_directory value="$PROJECT_DIR$/NPB-SER" />
+      <kind value="PACKAGE" />
+      <package value="NPB-SER/EP" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/NPB-SER/EP/ep.go" />
+      <method v="2" />
+    </configuration>
+    <configuration name="EP" type="MAKEFILE_TARGET_RUN_CONFIGURATION" factoryName="Makefile" temporary="true">
+      <makefile filename="$PROJECT_DIR$/NPB-SER/Makefile" target="EP" workingDirectory="" arguments="">
+        <envs />
+      </makefile>
+      <method v="2" />
+    </configuration>
+    <configuration name="ep" type="MAKEFILE_TARGET_RUN_CONFIGURATION" factoryName="Makefile" temporary="true">
+      <makefile filename="$PROJECT_DIR$/NPB-SER/Makefile" target="ep" workingDirectory="" arguments="">
+        <envs />
+      </makefile>
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Makefile Target.ep" />
+        <item itemvalue="Makefile Target.EP" />
+        <item itemvalue="Go Build.go build NPB-SER/EP" />
+        <item itemvalue="Makefile Target.ep" />
+        <item itemvalue="Makefile Target.EP" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-gosdk-3b128438d3f6-34ac7aa8f6ab-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-251.23774.430" />
+        <option value="bundled-js-predefined-d6986cc7102b-f27c65a3e318-JavaScript-GO-251.23774.430" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="c1cd5d42-2770-42fd-a828-250bb582dac8" name="Changes" comment="" />
+      <created>1748997255961</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1748997255961</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Implementação de EP Serial" />
+    <MESSAGE value="ignorando arquivos .iml" />
+    <MESSAGE value="ignorando o  diretóri .idea" />
+    <MESSAGE value="ignora executaveis" />
+    <MESSAGE value="REFACTOR: gitignore" />
+    <MESSAGE value="rename: EP/ep.go -&gt; EP/main.go" />
+    <MESSAGE value="automatização de build, run e clean com makefile" />
+    <MESSAGE value="UPDATE: README.MD" />
+    <MESSAGE value="init: ep version parallel with goroutine and chanel" />
+    <MESSAGE value="implemented NPB-CHANNEL's EP and improved the README.md" />
+    <MESSAGE value="fix some bugs in serial version of EP" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix some bugs in serial version of EP" />
+  </component>
+  <component name="VgoProject">
+    <settings-migrated>true</settings-migrated>
+  </component>
+</project>

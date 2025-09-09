@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/iyisakuma/NPB-GO/NPB-SER/EP/params"
-	"github.com/iyisakuma/NPB-GO/NPB-SER/common"
 	"math"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/iyisakuma/NPB-GO/NPB-SER/EP/params"
+	"github.com/iyisakuma/NPB-GO/NPB-SER/common"
 )
 
 const (
