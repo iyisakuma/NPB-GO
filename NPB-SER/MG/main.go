@@ -16,12 +16,16 @@ func main() {
 
 	// Create benchmark instance
 	mg := NewMGBenchmark()
-	mg.nx = params.NX
-	mg.ny = params.NY
-	mg.nz = params.NZ
+	// Initialize nx, ny, nz arrays (will be set properly in setup)
+	mg.nx = make([]int, MAXLEVEL+1)
+	mg.ny = make([]int, MAXLEVEL+1)
+	mg.nz = make([]int, MAXLEVEL+1)
 	mg.nit = params.NIT
-	mg.lm = params.LM
 	mg.class = params.CLASS
+	// Store initial values at top level (lt = LT_DEFAULT = 5)
+	mg.nx[mg.lt] = params.NX
+	mg.ny[mg.lt] = params.NY
+	mg.nz[mg.lt] = params.NZ
 
 	// Run benchmark
 	mg.run()
