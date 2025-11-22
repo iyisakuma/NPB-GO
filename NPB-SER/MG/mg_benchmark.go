@@ -53,9 +53,10 @@ type MGBenchmark struct {
 	n1, n2, n3    int // Actual array dimensions
 
 	// Verification
-	verified bool
-	rnm2     float64
-	rnmu     float64
+	verified  bool
+	rnm2      float64
+	rnmu      float64
+	debug_vec [8]int
 }
 
 // NewMGBenchmark creates a new MG benchmark instance
@@ -309,7 +310,7 @@ func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
 	}
 }
 
-func (mg *MGBenchmark) norm2u3(r []float64, n1, n2, n3 int, nx, ny, nz int) float64 {
+func (mg *MGBenchmark) norm2u3(r []float64, n1, n2, n3 int, nx, ny, nz int) (float64, float64) {
 	dn := 1.0 * float64(nx*ny*nz)
 	sum := 0.0
 	rnmu := 0.0
@@ -328,8 +329,7 @@ func (mg *MGBenchmark) norm2u3(r []float64, n1, n2, n3 int, nx, ny, nz int) floa
 		}
 	}
 
-	mg.rnmu = rnmu
-	return math.Sqrt(sum / dn)
+	return math.Sqrt(sum / dn), rnmu
 }
 
 func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k int) {
@@ -360,6 +360,10 @@ func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k i
 		}
 	}
 	mg.comm3(r, n1, n2, n3, k)
+
+	if mg.debug_vec[0] >= 1 {
+		mg.rep_nrm(r, n1, n2, n3, "resid", k)
+	}
 }
 
 func (mg *MGBenchmark) psinv(r, u []float64, n1, n2, n3 int, c []float64, k int) {
@@ -389,6 +393,10 @@ func (mg *MGBenchmark) psinv(r, u []float64, n1, n2, n3 int, c []float64, k int)
 		}
 	}
 	mg.comm3(u, n1, n2, n3, k)
+
+	if mg.debug_vec[0] >= 1 {
+		mg.rep_nrm(u, n1, n2, n3, "psinv", k)
+	}
 }
 
 func (mg *MGBenchmark) rprj3(r []float64, m1k, m2k, m3k int, s []float64, m1j, m2j, m3j int, k int) {
@@ -449,6 +457,10 @@ func (mg *MGBenchmark) rprj3(r []float64, m1k, m2k, m3k int, s []float64, m1j, m
 		}
 	}
 	mg.comm3(s, m1j, m2j, m3j, k-1)
+
+	if mg.debug_vec[0] >= 1 {
+		mg.rep_nrm(s, m1j, m2j, m3j, "rprj3", k-1)
+	}
 }
 
 func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n2, n3 int, k int) {
@@ -470,7 +482,8 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 					z2[i1] = z[idx3] + z[idx2]
 
 					idx4 := mg.calculateIdx(i1, i2+1, i3+1, mm1, mm2)
-					z3[i1] = z[idx4] + z[idx1] + z1[i1]
+					// CORREÇÃO AQUI: Usar idx3 em vez de idx1
+					z3[i1] = z[idx4] + z[idx3] + z1[i1]
 				}
 
 				for i1 := 0; i1 < mm1-1; i1++ {
@@ -493,6 +506,7 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 			}
 		}
 	} else {
+		// (Bloco else mantido igual à correção anterior de índices)
 		if n1 == 3 {
 			d1, t1 = 2, 1
 		} else {
@@ -513,13 +527,13 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 			for i2 := d2; i2 <= mm2-1; i2++ {
 				for i1 := d1; i1 <= mm1-1; i1++ {
 					zidx := mg.calculateIdx(i1-1, i2-1, i3-1, mm1, mm2)
-					uidx := mg.calculateIdx(2*i3-d3-1, 2*i2-d2-1, 2*i1-d1-1, n1, n2)
+					uidx := mg.calculateIdx(2*i1-d1-1, 2*i2-d2-1, 2*i3-d3-1, n1, n2)
 					u[uidx] += z[zidx]
 				}
 				for i1 := 1; i1 <= mm1-1; i1++ {
 					zidx1 := mg.calculateIdx(i1, i2-1, i3-1, mm1, mm2)
 					zidx2 := mg.calculateIdx(i1-1, i2-1, i3-1, mm1, mm2)
-					uidx := mg.calculateIdx(2*i3-d3-1, 2*i2-d2-1, 2*i1-t1-1, n1, n2)
+					uidx := mg.calculateIdx(2*i1-t1-1, 2*i2-d2-1, 2*i3-d3-1, n1, n2)
 					u[uidx] += 0.5 * (z[zidx1] + z[zidx2])
 				}
 			}
@@ -527,7 +541,7 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 				for i1 := d1; i1 <= mm1-1; i1++ {
 					zidx1 := mg.calculateIdx(i1-1, i2, i3-1, mm1, mm2)
 					zidx2 := mg.calculateIdx(i1-1, i2-1, i3-1, mm1, mm2)
-					uidx := mg.calculateIdx(2*i3-d3-1, 2*i2-t2-1, 2*i1-d1-1, n1, n2)
+					uidx := mg.calculateIdx(2*i1-d1-1, 2*i2-t2-1, 2*i3-d3-1, n1, n2)
 					u[uidx] += 0.5 * (z[zidx1] + z[zidx2])
 				}
 				for i1 := 1; i1 <= mm1-1; i1++ {
@@ -535,7 +549,7 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 					zidx2 := mg.calculateIdx(i1-1, i2, i3-1, mm1, mm2)
 					zidx3 := mg.calculateIdx(i1, i2-1, i3-1, mm1, mm2)
 					zidx4 := mg.calculateIdx(i1-1, i2-1, i3-1, mm1, mm2)
-					uidx := mg.calculateIdx(2*i3-d3-1, 2*i2-t2-1, 2*i1-t1-1, n1, n2)
+					uidx := mg.calculateIdx(2*i1-t1-1, 2*i2-t2-1, 2*i3-d3-1, n1, n2)
 					u[uidx] += 0.25 * (z[zidx1] + z[zidx2] + z[zidx3] + z[zidx4])
 				}
 			}
@@ -546,7 +560,7 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 				for i1 := d1; i1 <= mm1-1; i1++ {
 					zidx1 := mg.calculateIdx(i1-1, i2-1, i3, mm1, mm2)
 					zidx2 := mg.calculateIdx(i1-1, i2-1, i3-1, mm1, mm2)
-					uidx := mg.calculateIdx(2*i3-t3-1, 2*i2-d2-1, 2*i1-d1-1, n1, n2)
+					uidx := mg.calculateIdx(2*i1-d1-1, 2*i2-d2-1, 2*i3-t3-1, n1, n2)
 					u[uidx] += 0.5 * (z[zidx1] + z[zidx2])
 				}
 				for i1 := 1; i1 <= mm1-1; i1++ {
@@ -554,7 +568,7 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 					zidx2 := mg.calculateIdx(i1-1, i2-1, i3, mm1, mm2)
 					zidx3 := mg.calculateIdx(i1, i2-1, i3-1, mm1, mm2)
 					zidx4 := mg.calculateIdx(i1-1, i2-1, i3-1, mm1, mm2)
-					uidx := mg.calculateIdx(2*i3-t3-1, 2*i2-d2-1, 2*i1-t1-1, n1, n2)
+					uidx := mg.calculateIdx(2*i1-t1-1, 2*i2-d2-1, 2*i3-t3-1, n1, n2)
 					u[uidx] += 0.25 * (z[zidx1] + z[zidx2] + z[zidx3] + z[zidx4])
 				}
 			}
@@ -564,11 +578,12 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 					zidx2 := mg.calculateIdx(i1-1, i2-1, i3, mm1, mm2)
 					zidx3 := mg.calculateIdx(i1-1, i2, i3-1, mm1, mm2)
 					zidx4 := mg.calculateIdx(i1-1, i2-1, i3-1, mm1, mm2)
-					uidx := mg.calculateIdx(2*i3-t3-1, 2*i2-t2-1, 2*i1-d1-1, n1, n2)
+					uidx := mg.calculateIdx(2*i1-d1-1, 2*i2-t2-1, 2*i3-t3-1, n1, n2)
 					u[uidx] += 0.25 * (z[zidx1] + z[zidx2] + z[zidx3] + z[zidx4])
 				}
 				for i1 := 1; i1 <= mm1-1; i1++ {
-					u[mg.calculateIdx(2*i3-t3-1, 2*i2-t2-1, 2*i1-t1-1, n1, n2)] += 0.125 *
+					uidx := mg.calculateIdx(2*i1-t1-1, 2*i2-t2-1, 2*i3-t3-1, n1, n2)
+					u[uidx] += 0.125 *
 						(z[mg.calculateIdx(i1, i2, i3, mm1, mm2)] +
 							z[mg.calculateIdx(i1, i2-1, i3, mm1, mm2)] +
 							z[mg.calculateIdx(i1, i2, i3-1, mm1, mm2)] +
@@ -580,6 +595,11 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 				}
 			}
 		}
+	}
+
+	if mg.debug_vec[0] >= 1 {
+		mg.rep_nrm(z, mm1, mm2, mm3, "z: inter", k-1)
+		mg.rep_nrm(u, n1, n2, n3, "u: inter", k)
 	}
 }
 
@@ -622,6 +642,12 @@ func (mg *MGBenchmark) mg3P(u, v, r []float64, a, c []float64, n1, n2, n3 int, k
 	mg.interp(uj, mg.m1[j], mg.m2[j], mg.m3[j], u, n1, n2, n3, k)
 	mg.resid(u, v, r, n1, n2, n3, a, k)
 	mg.psinv(r, u, n1, n2, n3, c, k)
+}
+
+// rep_nrm report on norm
+func (mg *MGBenchmark) rep_nrm(u []float64, n1, n2, n3 int, title string, kk int) {
+	rnm2, rmnmu := mg.norm2u3(u, n1, n2, n3, mg.nx[kk], mg.ny[kk], mg.nz[kk])
+	fmt.Printf(" Level%2d in %8s: norms =%21.14e%21.14e\n", kk, title, rnm2, rmnmu)
 }
 
 func (mg *MGBenchmark) run() {
@@ -668,14 +694,14 @@ func (mg *MGBenchmark) run() {
 	zero3(mg.u, len(mg.u))
 	mg.zran3(mg.v, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.lt)
 
-	mg.rnm2 = mg.norm2u3(mg.v, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
+	mg.rnm2, mg.rnmu = mg.norm2u3(mg.v, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
 
 	fmt.Printf("\n\n NAS Parallel Benchmarks 4.1 Serial Go version - MG Benchmark\n\n")
 	fmt.Printf(" Size: %3dx%3dx%3d (class %s)\n", mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt], mg.class)
 	fmt.Printf(" Iterations: %3d\n", mg.nit)
 
 	mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
-	mg.rnm2 = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
+	mg.rnm2, mg.rnmu = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
 
 	// Warm-up
 	mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
@@ -687,17 +713,18 @@ func (mg *MGBenchmark) run() {
 	mg.zran3(mg.v, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.lt)
 
 	mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
-	mg.rnm2 = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
+	mg.rnm2, mg.rnmu = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
 
 	startTime := time.Now()
 	for it := 1; it <= mg.nit; it++ {
 		mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
 		mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
-
+		//x, y := mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
+		//fmt.Printf("It: %d  norms =%21.14e%21.14e\n ", it, x, y)
 	}
 	elapsed := time.Since(startTime).Seconds()
 
-	mg.rnm2 = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
+	mg.rnm2, mg.rnmu = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
 
 	epsilon := 1.0e-8
 	verifyValue := params.VERIFY_VALUE

@@ -26,7 +26,7 @@ func main() {
 	mg.nx[mg.lt] = params.NX
 	mg.ny[mg.lt] = params.NY
 	mg.nz[mg.lt] = params.NZ
-
+	mg.debug_vec[0] = 0 // Ativa os prints de rep_nrm
 	// Run benchmark
 	mg.run()
 }

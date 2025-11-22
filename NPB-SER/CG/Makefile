@@ -3,66 +3,66 @@
 # Go compiler
 GO = go
 
-# Build flags
-BUILD_FLAGS = -o cg
+# Source files
+SOURCES = main.go cg_benchmark.go
 
 # Default target
 all: cg
 
-# Build the CG benchmark
+# Build the CG benchmark (without tags - shows help message)
 cg:
-	$(GO) build $(BUILD_FLAGS) main.go
+	$(GO) build -o cg $(SOURCES)
 
 # Build with specific class
-cg.S: cg
-	$(GO) build -tags S $(BUILD_FLAGS) main.go
+cg.S:
+	$(GO) build -tags=S -o cg_S $(SOURCES)
 
-cg.W: cg
-	$(GO) build -tags W $(BUILD_FLAGS) main.go
+cg.W:
+	$(GO) build -tags=W -o cg_W $(SOURCES)
 
-cg.A: cg
-	$(GO) build -tags A $(BUILD_FLAGS) main.go
+cg.A:
+	$(GO) build -tags=A -o cg_A $(SOURCES)
 
-cg.B: cg
-	$(GO) build -tags B $(BUILD_FLAGS) main.go
+cg.B:
+	$(GO) build -tags=B -o cg_B $(SOURCES)
 
-cg.C: cg
-	$(GO) build -tags C $(BUILD_FLAGS) main.go
+cg.C:
+	$(GO) build -tags=C -o cg_C $(SOURCES)
 
-cg.D: cg
-	$(GO) build -tags D $(BUILD_FLAGS) main.go
+cg.D:
+	$(GO) build -tags=D -o cg_D $(SOURCES)
 
-cg.E: cg
-	$(GO) build -tags E $(BUILD_FLAGS) main.go
+cg.E:
+	$(GO) build -tags=E -o cg_E $(SOURCES)
 
-# Run benchmarks
-run: cg
-	./cg
+# Build all classes
+all-classes: cg.S cg.W cg.A cg.B cg.C cg.D cg.E
 
+# Run benchmarks (no arguments needed - class is determined by build tags)
 run.S: cg.S
-	./cg S
+	./cg_S
 
 run.W: cg.W
-	./cg W
+	./cg_W
 
 run.A: cg.A
-	./cg A
+	./cg_A
 
 run.B: cg.B
-	./cg B
+	./cg_B
 
 run.C: cg.C
-	./cg C
+	./cg_C
 
 run.D: cg.D
-	./cg D
+	./cg_D
 
 run.E: cg.E
-	./cg E
+	./cg_E
 
 # Clean up
 clean:
-	rm -f cg
+	rm -f cg cg_S cg_W cg_A cg_B cg_C cg_D cg_E
 
 # Install dependencies
 deps:
@@ -80,4 +80,4 @@ fmt:
 lint:
 	$(GO) vet ./...
 
-.PHONY: all cg run clean deps test fmt lint
+.PHONY: all cg cg.S cg.W cg.A cg.B cg.C cg.D cg.E all-classes run.S run.W run.A run.B run.C run.D run.E clean deps test fmt lint

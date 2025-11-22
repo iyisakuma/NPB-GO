@@ -4,7 +4,7 @@ VERBOSE ?= 0
 
 # List of valid kernels
 # KERNELS := EP IS MG FT SP CG
-KERNELS := EP IS
+KERNELS := EP IS MG CG
 
 # Binary directory
 BINDIR := bin
@@ -24,9 +24,9 @@ $(KERNELS):
 			echo "==> Building kernel: $@ with CLASS=$(CLASS)"; \
 			mkdir -p $(BINDIR); \
 			if [ "$(VERBOSE)" -eq "1" ]; then \
-				go build --tags=$(CLASS) -o $(BINDIR)/$@_$(CLASS) ./$@; \
+				go build -tags=$(CLASS) -o $(BINDIR)/$@_$(CLASS) ./$@; \
 			else \
-				go build --tags=$(CLASS) -o $(BINDIR)/$@_$(CLASS) ./$@ >/dev/null 2>&1; \
+				go build -tags=$(CLASS) -o $(BINDIR)/$@_$(CLASS) ./$@ >/dev/null 2>&1; \
 			fi; \
 			echo "==> Done! Executable: $(BINDIR)/$@_$(CLASS)"; \
 		else \
@@ -44,9 +44,9 @@ build-all:
 		echo "==> Building $$k with CLASS=$(CLASS)"; \
 		mkdir -p $(BINDIR); \
 		if [ "$(VERBOSE)" -eq "1" ]; then \
-			go build --tags=$(CLASS) -o $(BINDIR)/$$k_$(CLASS) ./$$k; \
+			go build -tags=$(CLASS) -o $(BINDIR)/$$k_$(CLASS) ./$$k; \
 		else \
-			go build --tags=$(CLASS) -o $(BINDIR)/$$k_$(CLASS) ./$$k >/dev/null 2>&1; \
+			go build -tags=$(CLASS) -o $(BINDIR)/$$k_$(CLASS) ./$$k >/dev/null 2>&1; \
 		fi; \
 		echo "==> Done! Executable: $(BINDIR)/$$k_$(CLASS)"; \
 	done
@@ -61,7 +61,7 @@ run:
 		if [ ! -f $$EXE ]; then \
 			echo "==> Executable $$EXE not found! Building first..."; \
 			mkdir -p $(BINDIR); \
-			go build --tags=$(CLASS) -o $$EXE ./$(KERNEL); \
+			go build -tags=$(CLASS) -o $$EXE ./$(KERNEL); \
 		fi; \
 		echo "==> Running $$EXE"; \
 		$$EXE; \
