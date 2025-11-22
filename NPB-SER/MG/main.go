@@ -1,71 +1,27 @@
 package main
 
-import "os"
+import (
+	"fmt"
+
+	"github.com/iyisakuma/NPB-GO/NPB-SER/MG/params"
+)
 
 func main() {
-	// Set problem size based on command line arguments
-	var nx, ny, nz, nit, lm int
-	var class string
-
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "S":
-			nx, ny, nz = 32, 32, 32
-			nit = 4
-			lm = 5
-			class = "S"
-		case "W":
-			nx, ny, nz = 64, 64, 64
-			nit = 4
-			lm = 5
-			class = "W"
-		case "A":
-			nx, ny, nz = 256, 256, 256
-			nit = 4
-			lm = 5
-			class = "A"
-		case "B":
-			nx, ny, nz = 256, 256, 256
-			nit = 20
-			lm = 5
-			class = "B"
-		case "C":
-			nx, ny, nz = 512, 512, 512
-			nit = 20
-			lm = 5
-			class = "C"
-		case "D":
-			nx, ny, nz = 1024, 1024, 1024
-			nit = 50
-			lm = 5
-			class = "D"
-		case "E":
-			nx, ny, nz = 2048, 2048, 2048
-			nit = 50
-			lm = 5
-			class = "E"
-		default:
-			nx, ny, nz = 32, 32, 32
-			nit = 4
-			lm = 5
-			class = "S"
-		}
-	} else {
-		// Default to class S
-		nx, ny, nz = 32, 32, 32
-		nit = 4
-		lm = 5
-		class = "S"
+	if params.EmptyTag {
+		fmt.Println("To make a NAS benchmark type ")
+		fmt.Println("\t go build -o mg -tags=<CLASS>")
+		fmt.Println("where: <class> is \"S\", \"W\", \"A\", \"B\", \"C\", \"D\" or \"E\"")
+		return
 	}
 
 	// Create benchmark instance
 	mg := NewMGBenchmark()
-	mg.nx = nx
-	mg.ny = ny
-	mg.nz = nz
-	mg.nit = nit
-	mg.lm = lm
-	mg.class = class
+	mg.nx = params.NX
+	mg.ny = params.NY
+	mg.nz = params.NZ
+	mg.nit = params.NIT
+	mg.lm = params.LM
+	mg.class = params.CLASS
 
 	// Run benchmark
 	mg.run()

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/iyisakuma/NPB-GO/NPB-SER/common"
+	"github.com/iyisakuma/NPB-GO/NPB-SER/MG/params"
 )
 
 // Constants
@@ -278,29 +279,9 @@ func (mg *MGBenchmark) run() {
 	mg.resid(mg.u, mg.v, mg.r, mg.m1[0], mg.m2[0], mg.m3[0], mg.nx, mg.ny, mg.nz, mg.a, 0)
 	mg.rnm2 = mg.norm2u3(mg.r, mg.m1[0], mg.m2[0], mg.m3[0])
 
-	// Verification values for each class - adjusted for simplified algorithm
-	var verifyValue float64
-	switch mg.class {
-	case "S":
-		verifyValue = 0.5307707005734e-04 // Correct C++ value
-	case "W":
-		verifyValue = 0.6467329375339e-05
-	case "A":
-		verifyValue = 0.2433365309069e-05
-	case "B":
-		verifyValue = 0.1800564401355e-05
-	case "C":
-		verifyValue = 0.5706732285740e-06
-	case "D":
-		verifyValue = 0.1583275060440e-09
-	case "E":
-		verifyValue = 0.8157592357404e-10
-	default:
-		verifyValue = 0.0
-	}
-
 	// Verification - use a more lenient tolerance for the simplified algorithm
 	epsilon := 1.0e-8
+	verifyValue := params.VERIFY_VALUE
 	err := math.Abs(mg.rnm2-verifyValue) / verifyValue
 	mg.verified = err <= epsilon
 
