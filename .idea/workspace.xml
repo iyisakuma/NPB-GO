@@ -5,8 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c1cd5d42-2770-42fd-a828-250bb582dac8" name="Changes" comment="fix some bugs in serial version of EP">
-      <change beforePath="$PROJECT_DIR$/NPB-CHANNEL/EP/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/NPB-CHANNEL/EP/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/NPB-SER/EP/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/NPB-SER/EP/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -69,7 +68,7 @@
     &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
     &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/home/touch/workspace/go/sinais&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/touch/workspace/NPB/NPB-GO&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
