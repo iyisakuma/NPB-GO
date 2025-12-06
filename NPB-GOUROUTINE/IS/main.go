@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"runtime"
-	"sync"
 
 	"github.com/iyisakuma/NPB-GO/NPB-GOUROUTINE/IS/params"
 	"github.com/iyisakuma/NPB-GO/NPB-GOUROUTINE/IS/types"
@@ -37,37 +35,16 @@ type ISBenchmark struct {
 	keyBuffPtrGlobal   []types.INT_TYPE
 	bucketSize         [][]types.INT_TYPE // [numProcs][NUM_BUCKETS]
 	bucketPtrs         []types.INT_TYPE   // [NUM_BUCKETS]
-
-	// Parallel execution fields
-	numProcs      int
-	workerResults chan WorkerResult
-}
-
-// WorkerResult represents the result of a worker goroutine
-type WorkerResult struct {
-	WorkerID int
-	Success  bool
 }
 
 // NewISBenchmark creates a new IS benchmark instance
 func NewISBenchmark() *ISBenchmark {
-	// Determine number of processors (limit to 8 for best performance)
-	numProcs := runtime.NumCPU()
-	if numProcs > 8 {
-		numProcs = 8
-	}
-	if numProcs < 1 {
-		numProcs = 1
-	}
-
 	bench := &ISBenchmark{
 		keyArray:          make([]types.INT_TYPE, SIZE_OF_BUFFERS),
 		keyBuff1:          make([]types.INT_TYPE, MAX_KEY),
 		keyBuff2:          make([]types.INT_TYPE, SIZE_OF_BUFFERS),
 		partialVerifyVals: make([]types.INT_TYPE, TEST_ARRAY_SIZE),
 		keyBuffPtrGlobal:  make([]types.INT_TYPE, MAX_KEY),
-		numProcs:          numProcs,
-		workerResults:     make(chan WorkerResult, numProcs),
 	}
 
 	if USE_BUCKET {
@@ -97,13 +74,14 @@ func (b *ISBenchmark) run() {
 		common.TimerStart(T_INITIALIZATION)
 	}
 
-	b.createSequenceParallel(314159265.00, 1220703125.00)
+	b.createSequence(314159265.00, 1220703125.00)
 	b.allocKeyBuff()
 
 	if timerOn {
 		common.TimerStop(T_INITIALIZATION)
 	}
 
+	// Initialization call (untimed)
 	b.rank(1)
 
 	b.passedVerification = 0
@@ -152,9 +130,8 @@ func (b *ISBenchmark) setupTimers() {
 }
 
 func (b *ISBenchmark) printHeader() {
-	fmt.Printf("\n\n NAS Parallel Benchmarks 4.1 Parallel Go version (with goroutines) - IS Benchmark\n\n")
+	fmt.Printf("\n\n NAS Parallel Benchmarks 4.1 Serial Go version - IS Benchmark\n\n")
 	fmt.Printf(" Size:  %d  (class %v)\n", TOTAL_KEYS, params.CLASS)
-	fmt.Printf(" Processors: %d\n", b.numProcs)
 	fmt.Printf(" Iterations:   %d\n", MAX_ITERATIONS)
 	fmt.Printf("\n")
 }
@@ -179,94 +156,41 @@ func (b *ISBenchmark) printResults(timecounter float64) {
 }
 
 func (b *ISBenchmark) allocKeyBuff() {
+	numProcs := 1
+
 	if USE_BUCKET {
-		// Parallel allocation following Rust Rayon pattern
-		b.bucketSize = make([][]types.INT_TYPE, b.numProcs)
-
-		// Parallel initialization of bucketSize arrays
-		var wg sync.WaitGroup
-		for i := 0; i < b.numProcs; i++ {
-			wg.Add(1)
-			go func(workerID int) {
-				defer wg.Done()
-				b.bucketSize[workerID] = make([]types.INT_TYPE, NUM_BUCKETS)
-				// Initialize to zero in parallel
-				for j := range b.bucketSize[workerID] {
-					b.bucketSize[workerID][j] = 0
-				}
-			}(i)
+		b.bucketSize = make([][]types.INT_TYPE, numProcs)
+		for i := 0; i < numProcs; i++ {
+			b.bucketSize[i] = make([]types.INT_TYPE, NUM_BUCKETS)
 		}
-		wg.Wait()
-
-		// Parallel initialization of keyBuff2
-		keysPerWorker := (len(b.keyBuff2) + b.numProcs - 1) / b.numProcs
-		for i := 0; i < b.numProcs; i++ {
-			wg.Add(1)
-			go func(workerID int) {
-				defer wg.Done()
-				start := keysPerWorker * workerID
-				end := start + keysPerWorker
-				if end > len(b.keyBuff2) {
-					end = len(b.keyBuff2)
-				}
-				for j := start; j < end; j++ {
-					b.keyBuff2[j] = 0
-				}
-			}(i)
+		// Initialize keyBuff2
+		for i := range b.keyBuff2 {
+			b.keyBuff2[i] = 0
 		}
-		wg.Wait()
 	} else {
-		// Parallel allocation for non-bucket version
-		b.keyBuff1Aptr = make([][]types.INT_TYPE, b.numProcs)
+		b.keyBuff1Aptr = make([][]types.INT_TYPE, numProcs)
 		b.keyBuff1Aptr[0] = b.keyBuff1
-
-		// Parallel allocation of additional arrays
-		var wg2 sync.WaitGroup
-		for i := 1; i < b.numProcs; i++ {
-			wg2.Add(1)
-			go func(workerID int) {
-				defer wg2.Done()
-				b.keyBuff1Aptr[workerID] = make([]types.INT_TYPE, MAX_KEY)
-				// Initialize to zero in parallel
-				for j := range b.keyBuff1Aptr[workerID] {
-					b.keyBuff1Aptr[workerID][j] = 0
-				}
-			}(i)
+		for i := 1; i < numProcs; i++ {
+			b.keyBuff1Aptr[i] = make([]types.INT_TYPE, MAX_KEY)
 		}
-		wg2.Wait()
 	}
 }
 
-// createSequenceParallel generates a sequence of pseudo-random integer keys using goroutines
-func (b *ISBenchmark) createSequenceParallel(seed, multiplier float64) {
-	var wg sync.WaitGroup
+// createSequence generates a sequence of pseudo-random integer keys
+func (b *ISBenchmark) createSequence(seed, multiplier float64) {
+	myId := 0
+	numProcs := 1
 
-	// Launch workers - each worker will calculate its own range internally
-	for myId := 0; myId < b.numProcs; myId++ {
-		wg.Add(1)
-		go b.sequenceWorker(myId, seed, multiplier, &wg)
-	}
-
-	// Wait for all workers to complete
-	wg.Wait()
-}
-
-// sequenceWorker processes a portion of the sequence in parallel
-func (b *ISBenchmark) sequenceWorker(myId int, seed, multiplier float64, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	mq := (NUM_KEYS + b.numProcs - 1) / b.numProcs
-	k1 := mq * myId
+	mq := (NUM_KEYS + types.INT_TYPE(numProcs) - 1) / types.INT_TYPE(numProcs)
+	k1 := mq * types.INT_TYPE(myId)
 	k2 := k1 + mq
 	if k2 > NUM_KEYS {
 		k2 = NUM_KEYS
 	}
 
-	// Find seed for this worker
-	mySeed := b.findMySeed(myId, b.numProcs, 4*NUM_KEYS, seed, multiplier)
+	mySeed := b.findMySeed(myId, numProcs, 4*NUM_KEYS, seed, multiplier)
 	k := MAX_KEY / 4
 
-	// Generate keys for this worker's range
 	for i := k1; i < k2; i++ {
 		x := common.Randlc(&mySeed, multiplier)
 		x += common.Randlc(&mySeed, multiplier)
@@ -276,14 +200,11 @@ func (b *ISBenchmark) sequenceWorker(myId int, seed, multiplier float64, wg *syn
 	}
 }
 
-func (b *ISBenchmark) findMySeed(processorRank, numberProcessor int, numRanNumber int, seed, constantMultiplier float64) float64 {
-	if processorRank == 0 {
-		return seed
-	}
-	mq := (numRanNumber/4 + numberProcessor - 1) / numberProcessor
-	nq := mq * 4 * processorRank
+func (b *ISBenchmark) findMySeed(processorRank, numberProcessor int, numRanNumber uint, seed, constantMultiplier float64) float64 {
+	mq := (uint(int(numRanNumber)/4 + numberProcessor - 1)) / uint(numberProcessor)
+	nq := mq * 4 * uint(processorRank)
 
-	t1 := seed
+	mySeed := seed
 	t2 := constantMultiplier
 	kk := nq
 
@@ -293,12 +214,11 @@ func (b *ISBenchmark) findMySeed(processorRank, numberProcessor int, numRanNumbe
 			common.Randlc(&t2, t2)
 			kk = ik
 		} else {
-			common.Randlc(&t1, t2)
+			common.Randlc(&mySeed, t2)
 			kk--
 		}
 	}
-	common.Randlc(&t1, t2)
-	return t1
+	return mySeed
 }
 
 // rank performs the main ranking/sorting operation for each iteration
@@ -375,137 +295,6 @@ func (b *ISBenchmark) rankWithBuckets() ([]types.INT_TYPE, []types.INT_TYPE) {
 	b.sortWithinBuckets(numBucketKeys, keyBuffPtr, keyBuffPtr2)
 
 	return keyBuffPtr, keyBuffPtr2
-}
-
-// sortBucket sorts keys within a specific bucket (following C++ OpenMP pattern)
-func (b *ISBenchmark) sortBucket(bucketID int, numBucketKeys types.INT_TYPE, keyBuffPtr, keyBuffPtr2 []types.INT_TYPE) {
-	k1 := types.INT_TYPE(bucketID) * numBucketKeys
-	k2 := k1 + numBucketKeys
-	if k2 > MAX_KEY {
-		k2 = MAX_KEY
-	}
-
-	// Clear work array section for this bucket
-	for k := k1; k < k2; k++ {
-		if k < types.INT_TYPE(len(keyBuffPtr)) {
-			keyBuffPtr[k] = 0
-		}
-	}
-
-	// Count keys in this bucket
-	m := types.INT_TYPE(0)
-	if bucketID > 0 {
-		m = b.bucketPtrs[bucketID-1]
-	}
-	for k := m; k < b.bucketPtrs[bucketID]; k++ {
-		if k < types.INT_TYPE(len(keyBuffPtr2)) {
-			key := keyBuffPtr2[k]
-			if key < types.INT_TYPE(len(keyBuffPtr)) {
-				keyBuffPtr[key]++
-			}
-		}
-	}
-
-	// Calculate cumulative counts
-	if k1 < types.INT_TYPE(len(keyBuffPtr)) {
-		keyBuffPtr[k1] += m
-	}
-	for k := k1 + 1; k < k2; k++ {
-		if k < types.INT_TYPE(len(keyBuffPtr)) {
-			keyBuffPtr[k] += keyBuffPtr[k-1]
-		}
-	}
-}
-
-func (b *ISBenchmark) parallelBucketCounting(shift int) {
-	var wg sync.WaitGroup
-	keysPerWorker := (NUM_KEYS + b.numProcs - 1) / b.numProcs
-
-	// Launch workers for parallel bucket counting
-	for i := 0; i < b.numProcs; i++ {
-		wg.Add(1)
-		go b.bucketCountWorker(i, keysPerWorker, shift, &wg)
-	}
-	wg.Wait()
-}
-
-// bucketCountWorker counts keys per bucket in parallel (following C++ OpenMP pattern)
-func (b *ISBenchmark) bucketCountWorker(workerID, keysPerWorker, shift int, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	workBuff := b.bucketSize[workerID]
-
-	// Clear counts for this worker
-	for i := range workBuff {
-		workBuff[i] = 0
-	}
-
-	// Calculate range for this worker
-	k1 := keysPerWorker * workerID
-	k2 := k1 + keysPerWorker
-	if k2 > NUM_KEYS {
-		k2 = NUM_KEYS
-	}
-
-	// Count keys per bucket for this worker's portion
-	for i := k1; i < k2; i++ {
-		idx := b.keyArray[i] >> shift
-		workBuff[idx]++
-	}
-}
-
-// parallelBucketSorting sorts within buckets in parallel (following C++ OpenMP pattern)
-func (b *ISBenchmark) parallelBucketSorting(numBucketKeys types.INT_TYPE, keyBuffPtr, keyBuffPtr2 []types.INT_TYPE) {
-	var wg sync.WaitGroup
-
-	// Launch workers for each bucket (dynamic scheduling like C++)
-	for i := 0; i < NUM_BUCKETS; i++ {
-		wg.Add(1)
-		go b.bucketSortWorker(i, numBucketKeys, keyBuffPtr, keyBuffPtr2, &wg)
-	}
-	wg.Wait()
-}
-
-// bucketSortWorker sorts keys within a specific bucket (following C++ OpenMP pattern)
-func (b *ISBenchmark) bucketSortWorker(bucketID int, numBucketKeys types.INT_TYPE, keyBuffPtr, keyBuffPtr2 []types.INT_TYPE, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	k1 := types.INT_TYPE(bucketID) * numBucketKeys
-	k2 := k1 + numBucketKeys
-	if k2 > MAX_KEY {
-		k2 = MAX_KEY
-	}
-
-	// Clear work array section for this bucket
-	for k := k1; k < k2; k++ {
-		if k < types.INT_TYPE(len(keyBuffPtr)) {
-			keyBuffPtr[k] = 0
-		}
-	}
-
-	// Count keys in this bucket
-	m := types.INT_TYPE(0)
-	if bucketID > 0 {
-		m = b.bucketPtrs[bucketID-1]
-	}
-	for k := m; k < b.bucketPtrs[bucketID]; k++ {
-		if k < types.INT_TYPE(len(keyBuffPtr2)) {
-			key := keyBuffPtr2[k]
-			if key < types.INT_TYPE(len(keyBuffPtr)) {
-				keyBuffPtr[key]++
-			}
-		}
-	}
-
-	// Calculate cumulative counts
-	if k1 < types.INT_TYPE(len(keyBuffPtr)) {
-		keyBuffPtr[k1] += m
-	}
-	for k := k1 + 1; k < k2; k++ {
-		if k < types.INT_TYPE(len(keyBuffPtr)) {
-			keyBuffPtr[k] += keyBuffPtr[k-1]
-		}
-	}
 }
 
 func (b *ISBenchmark) calculateBucketPointers(myid, numProcs int) {
@@ -594,46 +383,6 @@ func (b *ISBenchmark) rankWithoutBuckets() ([]types.INT_TYPE, []types.INT_TYPE) 
 	return keyBuffPtr, keyBuffPtr2
 }
 
-// parallelKeyCounting performs parallel key counting (following C++ OpenMP pattern)
-func (b *ISBenchmark) parallelKeyCounting() {
-	var wg sync.WaitGroup
-	keysPerWorker := (NUM_KEYS + b.numProcs - 1) / b.numProcs
-
-	// Launch workers for parallel key counting
-	for i := 0; i < b.numProcs; i++ {
-		wg.Add(1)
-		go b.keyCountWorker(i, keysPerWorker, &wg)
-	}
-	wg.Wait()
-}
-
-// keyCountWorker counts keys in parallel (following C++ OpenMP pattern)
-func (b *ISBenchmark) keyCountWorker(workerID, keysPerWorker int, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	workBuff := b.keyBuff1Aptr[workerID]
-
-	// Clear work array for this worker
-	for i := range workBuff {
-		workBuff[i] = 0
-	}
-
-	// Calculate range for this worker
-	k1 := keysPerWorker * workerID
-	k2 := k1 + keysPerWorker
-	if k2 > NUM_KEYS {
-		k2 = NUM_KEYS
-	}
-
-	// Count keys for this worker's portion
-	for i := k1; i < k2; i++ {
-		key := b.keyArray[i]
-		if key < types.INT_TYPE(len(workBuff)) {
-			workBuff[key]++
-		}
-	}
-}
-
 func (b *ISBenchmark) partialVerify(iteration types.INT_TYPE, keyBuffPtr []types.INT_TYPE) {
 	for i := 0; i < TEST_ARRAY_SIZE; i++ {
 		k := b.partialVerifyVals[i]
@@ -656,100 +405,33 @@ func (b *ISBenchmark) fullVerify() {
 		b.fullVerifyWithoutBuckets()
 	}
 
-	// Parallel verification following C++ OpenMP pattern
-	b.parallelFullVerify()
-}
-
-// parallelFullVerify performs parallel verification using goroutines and channels (following C++ OpenMP pattern)
-func (b *ISBenchmark) parallelFullVerify() {
-	// Use channels for communication between workers
-	resultChan := make(chan int, b.numProcs)
-
-	// Calculate work distribution
-	keysPerWorker := (NUM_KEYS + b.numProcs - 1) / b.numProcs
-
-	// Launch workers for parallel verification
-	for i := 0; i < b.numProcs; i++ {
-		go b.verifyWorker(i, keysPerWorker, resultChan)
-	}
-
-	// Collect results from all workers
-	totalOutOfSort := 0
-	for i := 0; i < b.numProcs; i++ {
-		workerResult := <-resultChan
-		totalOutOfSort += workerResult
-	}
-
-	// Report results
-	if totalOutOfSort > 0 {
-		fmt.Printf("Full_verify: number of keys out of sort: %d\n", totalOutOfSort)
-	} else {
-		b.passedVerification++
-	}
-}
-
-// verifyWorker performs verification for a portion of the array (following C++ OpenMP pattern)
-func (b *ISBenchmark) verifyWorker(workerID, keysPerWorker int, resultChan chan int) {
-	// Calculate range for this worker
-	k1 := keysPerWorker * workerID
-	k2 := k1 + keysPerWorker
-	if k2 > NUM_KEYS {
-		k2 = NUM_KEYS
-	}
-
-	// Count incorrect keys in this worker's range
+	// Check if keys are correctly sorted
 	incorrectCount := 0
-	for i := k1 + 1; i < k2; i++ {
+	for i := 1; i < NUM_KEYS; i++ {
 		if b.keyArray[i-1] > b.keyArray[i] {
 			incorrectCount++
 		}
 	}
 
-	// Check boundary between workers (except for the first worker)
-	if workerID > 0 && k1 > 0 {
-		if b.keyArray[k1-1] > b.keyArray[k1] {
-			incorrectCount++
-		}
+	if incorrectCount != 0 {
+		fmt.Printf("Full_verify: number of keys out of sort: %d\n", incorrectCount)
+	} else {
+		b.passedVerification++
 	}
-
-	// Send result to channel
-	resultChan <- incorrectCount
 }
 
 func (b *ISBenchmark) fullVerifyWithBuckets() {
-	b.parallelFullVerifyWithBuckets()
-}
-
-// parallelFullVerifyWithBuckets performs parallel verification with buckets (following C++ OpenMP pattern)
-func (b *ISBenchmark) parallelFullVerifyWithBuckets() {
-	var wg sync.WaitGroup
-
-	// Launch workers for each bucket (dynamic scheduling like C++)
 	for j := 0; j < NUM_BUCKETS; j++ {
-		wg.Add(1)
-		go b.bucketVerifyWorker(j, &wg)
-	}
-	wg.Wait()
-}
+		k1 := types.INT_TYPE(0)
+		if j > 0 {
+			k1 = b.bucketPtrs[j-1]
+		}
 
-// bucketVerifyWorker processes a specific bucket (following C++ OpenMP pattern)
-func (b *ISBenchmark) bucketVerifyWorker(bucketID int, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	k1 := types.INT_TYPE(0)
-	if bucketID > 0 {
-		k1 = b.bucketPtrs[bucketID-1]
-	}
-
-	for i := k1; i < b.bucketPtrs[bucketID]; i++ {
-		if i < types.INT_TYPE(len(b.keyBuff2)) {
-			key := b.keyBuff2[i]
-			if key < types.INT_TYPE(len(b.keyBuffPtrGlobal)) {
-				k := b.keyBuffPtrGlobal[key] - 1
-				b.keyBuffPtrGlobal[key] = k
-				if k >= 0 && k < types.INT_TYPE(len(b.keyArray)) {
-					b.keyArray[k] = b.keyBuff2[i]
-				}
+		for i := k1; i < b.bucketPtrs[j]; i++ {
+			k := b.keyBuffPtrGlobal[b.keyBuff2[i]] - 1
+			b.keyBuffPtrGlobal[b.keyBuff2[i]] = k
+			if k < types.INT_TYPE(len(b.keyArray)) {
+				b.keyArray[k] = b.keyBuff2[i]
 			}
 		}
 	}

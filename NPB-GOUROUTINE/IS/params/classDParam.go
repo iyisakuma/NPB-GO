@@ -3,8 +3,8 @@
 package params
 
 import (
-	"github.com/iyisakuma/NPB-GO/NPB-CHANNEL/IS/types"
-	"github.com/iyisakuma/NPB-GO/NPB-CHANNEL/IS/verifier"
+	"github.com/iyisakuma/NPB-GO/NPB-SER/IS/types"
+	"github.com/iyisakuma/NPB-GO/NPB-SER/IS/verifier"
 )
 
 const (
