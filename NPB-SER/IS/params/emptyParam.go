@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	CLASS             = "S"
+	CLASS             = ""
 	TOTAL_KEYS_LOG_2  = 16
 	MAX_KEY_LOG_2     = 11
 	NUM_BUCKETS_LOG_2 = 9
+	EmptyTag          = true
 )
 
 var TEST_INDEX_ARRAY = [5]types.INT_TYPE{48427, 17148, 23627, 62548, 4431}

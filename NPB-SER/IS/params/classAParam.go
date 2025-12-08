@@ -12,6 +12,7 @@ const (
 	TOTAL_KEYS_LOG_2  = 23
 	MAX_KEY_LOG_2     = 19
 	NUM_BUCKETS_LOG_2 = 10
+	EmptyTag          = false
 )
 
 var TEST_INDEX_ARRAY = [5]types.INT_TYPE{2112377, 662041, 5336171, 3642833, 4250760}

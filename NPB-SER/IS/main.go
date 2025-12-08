@@ -64,6 +64,13 @@ func NewISBenchmark() *ISBenchmark {
 }
 
 func main() {
+	if params.EmptyTag {
+		fmt.Println("To make a NAS benchmark type ")
+		fmt.Println("\t go build -o is -tags=<CLASS>")
+		fmt.Println("where: <class> is \"S\", \"W\", \"A\", \"B\", \"C\" or \"D\"")
+		return
+	}
+
 	bench := NewISBenchmark()
 	bench.run()
 }
