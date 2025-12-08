@@ -3,6 +3,10 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
+	"runtime"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/iyisakuma/NPB-GO/NPB-GOUROUTINE/MG/params"
@@ -26,6 +30,7 @@ const (
 	T_INIT     = 0
 	T_BENCH    = 1
 	T_LAST     = 10
+	T_COMM3    = 9
 )
 
 // MGBenchmark represents the MG (Multigrid) benchmark
@@ -53,14 +58,27 @@ type MGBenchmark struct {
 	n1, n2, n3    int // Actual array dimensions
 
 	// Verification
-	verified  bool
-	rnm2      float64
-	rnmu      float64
-	debug_vec [8]int
+	verified   bool
+	rnm2       float64
+	rnmu       float64
+	debug_vec  [8]int
+	numWorkers int
+	timerOn    bool
 }
 
 // NewMGBenchmark creates a new MG benchmark instance
 func NewMGBenchmark() *MGBenchmark {
+	numWorkers := runtime.NumCPU()
+	if nw := os.Getenv("GO_NUM_THREADS"); nw != "" {
+		if n, err := strconv.Atoi(nw); err == nil && n > 0 {
+			numWorkers = n
+		}
+	}
+	timerOn := false
+	if _, err := os.Stat("timer.flag"); err == nil {
+		timerOn = true
+	}
+
 	return &MGBenchmark{
 		lt: LT_DEFAULT,
 		lb: 1,
@@ -72,15 +90,17 @@ func NewMGBenchmark() *MGBenchmark {
 		m3: make([]int, MAXLEVEL+1),
 		ir: make([]int, MAXLEVEL+1),
 		// Pre-allocate work buffers
-		u1: make([]float64, M),
-		u2: make([]float64, M),
-		r1: make([]float64, M),
-		r2: make([]float64, M),
-		z1: make([]float64, M),
-		z2: make([]float64, M),
-		z3: make([]float64, M),
-		x1: make([]float64, M),
-		y1: make([]float64, M),
+		u1:         make([]float64, M),
+		u2:         make([]float64, M),
+		r1:         make([]float64, M),
+		r2:         make([]float64, M),
+		z1:         make([]float64, M),
+		z2:         make([]float64, M),
+		z3:         make([]float64, M),
+		x1:         make([]float64, M),
+		y1:         make([]float64, M),
+		numWorkers: numWorkers,
+		timerOn:    timerOn,
 	}
 }
 
@@ -273,43 +293,89 @@ func (mg *MGBenchmark) zran3(z []float64, n1, n2, n3 int, nx, ny int, k int) {
 
 	mg.comm3(z, n1, n2, n3, k)
 }
-
 func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
-	// axis = 1
-	for i3 := 1; i3 < n3-1; i3++ {
-		for i2 := 1; i2 < n2-1; i2++ {
-			idx0 := mg.calculateIdx(0, i2, i3, n1, n2)
-			idx1 := mg.calculateIdx(n1-2, i2, i3, n1, n2)
-			idx2 := mg.calculateIdx(n1-1, i2, i3, n1, n2)
-			idx3 := mg.calculateIdx(1, i2, i3, n1, n2)
-			u[idx0] = u[idx1]
-			u[idx2] = u[idx3]
-		}
+	if mg.timerOn {
+		common.TimerStart(T_COMM3)
 	}
-	// axis = 2
-	for i3 := 1; i3 < n3-1; i3++ {
-		for i1 := 0; i1 < n1; i1++ {
-			idx0 := mg.calculateIdx(i1, 0, i3, n1, n2)
-			idx1 := mg.calculateIdx(i1, n2-2, i3, n1, n2)
-			idx2 := mg.calculateIdx(i1, n2-1, i3, n1, n2)
-			idx3 := mg.calculateIdx(i1, 1, i3, n1, n2)
-			u[idx0] = u[idx1]
-			u[idx2] = u[idx3]
-		}
+
+	var wg sync.WaitGroup
+	numWorkers := mg.numWorkers
+
+	chunk := (n3 - 2) / numWorkers
+	if chunk == 0 {
+		chunk = 1
 	}
-	// axis = 3
-	for i2 := 0; i2 < n2; i2++ {
-		for i1 := 0; i1 < n1; i1++ {
-			idx0 := mg.calculateIdx(i1, i2, 0, n1, n2)
-			idx1 := mg.calculateIdx(i1, i2, n3-2, n1, n2)
-			idx2 := mg.calculateIdx(i1, i2, n3-1, n1, n2)
-			idx3 := mg.calculateIdx(i1, i2, 1, n1, n2)
-			u[idx0] = u[idx1]
-			u[idx2] = u[idx3]
-		}
+
+	wg.Add(numWorkers)
+	for workerID := 0; workerID < numWorkers; workerID++ {
+		go func(id int) {
+			defer wg.Done()
+			start := 1 + id*chunk
+			end := start + chunk
+			if id == numWorkers-1 {
+				end = n3 - 1
+			}
+
+			for i3 := start; i3 < end; i3++ {
+				// axis = 1: bordas em i1 (i1=0 e i1=n1-1)
+				for i2 := 1; i2 < n2-1; i2++ {
+					idx0 := mg.calculateIdx(0, i2, i3, n1, n2)
+					idx1 := mg.calculateIdx(n1-2, i2, i3, n1, n2)
+					idx2 := mg.calculateIdx(n1-1, i2, i3, n1, n2)
+					idx3 := mg.calculateIdx(1, i2, i3, n1, n2)
+					u[idx0] = u[idx1]
+					u[idx2] = u[idx3]
+				}
+
+				// axis = 2: bordas em i2 (i2=0 e i2=n2-1)
+				// IMPORTANTE: Faz axis=2 logo após axis=1 para o mesmo i3
+				for i1 := 0; i1 < n1; i1++ {
+					idx0 := mg.calculateIdx(i1, 0, i3, n1, n2)
+					idx1 := mg.calculateIdx(i1, n2-2, i3, n1, n2)
+					idx2 := mg.calculateIdx(i1, n2-1, i3, n1, n2)
+					idx3 := mg.calculateIdx(i1, 1, i3, n1, n2)
+					u[idx0] = u[idx1]
+					u[idx2] = u[idx3]
+				}
+			}
+		}(workerID)
+	}
+	wg.Wait() // Garantir que axis=1 e axis=2 terminem antes de axis=3
+
+	chunk = n2 / numWorkers
+	if chunk == 0 {
+		chunk = 1
+	}
+
+	wg.Add(numWorkers)
+	for workerID := 0; workerID < numWorkers; workerID++ {
+		go func(id int) {
+			defer wg.Done()
+			start := id * chunk
+			end := start + chunk
+			if id == numWorkers-1 {
+				end = n2
+			}
+
+			for i2 := start; i2 < end; i2++ {
+				for i1 := 0; i1 < n1; i1++ {
+					// axis = 3: bordas em i3 (i3=0 e i3=n3-1)
+					idx0 := mg.calculateIdx(i1, i2, 0, n1, n2)
+					idx1 := mg.calculateIdx(i1, i2, n3-2, n1, n2)
+					idx2 := mg.calculateIdx(i1, i2, n3-1, n1, n2)
+					idx3 := mg.calculateIdx(i1, i2, 1, n1, n2)
+					u[idx0] = u[idx1]
+					u[idx2] = u[idx3]
+				}
+			}
+		}(workerID)
+	}
+	wg.Wait()
+
+	if mg.timerOn {
+		common.TimerStop(T_COMM3)
 	}
 }
-
 func (mg *MGBenchmark) norm2u3(r []float64, n1, n2, n3 int, nx, ny, nz int) (float64, float64) {
 	dn := 1.0 * float64(nx*ny*nz)
 	sum := 0.0
