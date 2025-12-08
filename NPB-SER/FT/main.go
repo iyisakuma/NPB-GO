@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/iyisakuma/NPB-GO/NPB-SER/common"
+	"github.com/iyisakuma/NPB-GO/NPB-SER/FT/params"
 	"math"
 	"math/cmplx"
 	"os"
@@ -14,7 +15,7 @@ const (
 	FFTBLOCK    = 16
 	FFTBLOCKPAD = 18
 
-	MAXDIM  = 2048 // Should cover max dimension for supported classes
+	// MAXDIM will be set from params.MAXDIM
 	SEED    = 314159265.0
 	A       = 1220703125.0
 	PI      = 3.141592653589793238
@@ -466,7 +467,7 @@ func (ft *FTBenchmark) run() {
 	u1 = make([]Dcomplex, NTOTAL)
 	twiddle = make([]Dcomplex, NTOTAL)
 	sums = make([]Dcomplex, NITER+1)
-	u = make([]Dcomplex, MAXDIM)
+	u = make([]Dcomplex, params.MAXDIM)
 
 	fmt.Printf("\n\n NAS Parallel Benchmarks 4.1 Serial Go version - FT Benchmark\n\n")
 	fmt.Printf(" Size                : %4dx%4dx%4d\n", NX, NY, NZ)
@@ -475,7 +476,7 @@ func (ft *FTBenchmark) run() {
 	// 1. Warmup Run
 	ft.compute_indexmap(twiddle, dims[0], dims[1], dims[2])
 	ft.compute_initial_conditions(u1, dims[0], dims[1], dims[2])
-	ft.fft_init(MAXDIM)
+	ft.fft_init(params.MAXDIM)
 	ft.fft(1, u1, u0)
 
 	// 2. Timed Run
@@ -490,7 +491,7 @@ func (ft *FTBenchmark) run() {
 
 	ft.compute_indexmap(twiddle, dims[0], dims[1], dims[2])
 	ft.compute_initial_conditions(u1, dims[0], dims[1], dims[2])
-	ft.fft_init(MAXDIM)
+	ft.fft_init(params.MAXDIM)
 
 	if timersEnabled {
 		common.TimerStop(T_SETUP)
@@ -566,27 +567,19 @@ func (ft *FTBenchmark) run() {
 }
 
 func main() {
-	// Parse args similar to other benchmarks logic if needed,
-	// but here hardcoding defaults or simple check as placeholder
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "S":
-			NX, NY, NZ, NITER, CLASS = 64, 64, 64, 6, "S"
-		case "W":
-			NX, NY, NZ, NITER, CLASS = 128, 128, 32, 6, "W"
-		case "A":
-			NX, NY, NZ, NITER, CLASS = 256, 256, 128, 6, "A"
-		case "B":
-			NX, NY, NZ, NITER, CLASS = 512, 256, 256, 20, "B"
-		case "C":
-			NX, NY, NZ, NITER, CLASS = 512, 512, 512, 20, "C"
-		default:
-			// Default S
-			NX, NY, NZ, NITER, CLASS = 64, 64, 64, 6, "S"
-		}
-	} else {
-		NX, NY, NZ, NITER, CLASS = 64, 64, 64, 6, "S"
+	if params.EmptyTag {
+		fmt.Println("To make a NAS benchmark type ")
+		fmt.Println("\t go build -o ft -tags=<CLASS>")
+		fmt.Println("where: <class> is \"S\", \"W\", \"A\", \"B\", \"C\", \"D\" or \"E\"")
+		return
 	}
+
+	// Set global variables from params
+	NX = params.NX
+	NY = params.NY
+	NZ = params.NZ
+	NITER = params.NITER
+	CLASS = params.CLASS
 
 	ft := NewFTBenchmark()
 	ft.run()

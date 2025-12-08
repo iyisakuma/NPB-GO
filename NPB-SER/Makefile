@@ -4,7 +4,7 @@ VERBOSE ?= 0
 
 # List of valid kernels
 # KERNELS := EP IS MG FT SP CG
-KERNELS := EP IS MG CG
+KERNELS := EP IS MG CG FT
 
 # Binary directory
 BINDIR := bin
