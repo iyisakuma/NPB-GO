@@ -13,15 +13,9 @@ import (
 
 // Constants
 const (
-	LM         = 5
-	LT_DEFAULT = 5
-	NDIM1      = 5
-	NDIM2      = 5
-	NDIM3      = 5
-	NM         = 2 + (1 << LM)
+	// LM and LT_DEFAULT are now calculated dynamically based on problem size
+	// NDIM1, NDIM2, NDIM3 are no longer used as constants (calculated from NX, NY, NZ)
 	ONE        = 1
-	MAXLEVEL   = LT_DEFAULT + 1
-	M          = NM + 1
 	MM         = 10
 	A          = 1220703125.0 // pow(5.0, 13.0)
 	X          = 314159265.0
@@ -48,6 +42,13 @@ type MGBenchmark struct {
 	ie1, ie2, ie3 int // End indices
 	n1, n2, n3    int // Actual array dimensions
 
+	// Problem size dependent constants
+	lm         int // log2 of NX (calculated from problem size)
+	lt_default int // Same as lm
+	nm         int // 2 + (1 << lm)
+	maxlevel   int // lt_default + 1
+	m          int // nm + 1
+
 	// Parallelism
 	numProcs int
 
@@ -58,6 +59,19 @@ type MGBenchmark struct {
 	debug_vec [8]int
 }
 
+// log2 calculates log base 2 of an integer
+func log2(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	result := 0
+	for n > 1 {
+		n >>= 1
+		result++
+	}
+	return result
+}
+
 // NewMGBenchmark creates a new MG benchmark instance
 func NewMGBenchmark() *MGBenchmark {
 	// Determina número de CPUs para paralelismo
@@ -65,15 +79,14 @@ func NewMGBenchmark() *MGBenchmark {
 	runtime.GOMAXPROCS(numProcs)
 
 	return &MGBenchmark{
-		lt:       LT_DEFAULT,
 		lb:       1,
-		nx:       make([]int, MAXLEVEL+1),
-		ny:       make([]int, MAXLEVEL+1),
-		nz:       make([]int, MAXLEVEL+1),
-		m1:       make([]int, MAXLEVEL+1),
-		m2:       make([]int, MAXLEVEL+1),
-		m3:       make([]int, MAXLEVEL+1),
-		ir:       make([]int, MAXLEVEL+1),
+		nx:       make([]int, 0), // Will be resized based on maxlevel
+		ny:       make([]int, 0),
+		nz:       make([]int, 0),
+		m1:       make([]int, 0),
+		m2:       make([]int, 0),
+		m3:       make([]int, 0),
+		ir:       make([]int, 0),
 		numProcs: numProcs,
 	}
 }
@@ -176,7 +189,7 @@ func (mg *MGBenchmark) bubble(ten *[2][MM]float64, j1, j2, j3 *[2][MM]int, m, in
 
 // setup calculates grid sizes and offsets for all levels
 func (mg *MGBenchmark) setup() {
-	ng := make([][]int, MAXLEVEL+1)
+	ng := make([][]int, mg.maxlevel+1)
 	for i := range ng {
 		ng[i] = make([]int, 3)
 	}
@@ -197,7 +210,7 @@ func (mg *MGBenchmark) setup() {
 		mg.nz[k] = ng[k][2]
 	}
 
-	mi := make([][]int, MAXLEVEL+1)
+	mi := make([][]int, mg.maxlevel+1)
 	for i := range mi {
 		mi[i] = make([]int, 3)
 	}
@@ -723,8 +736,34 @@ func (mg *MGBenchmark) rep_nrm(u []float64, n1, n2, n3 int, title string, kk int
 }
 
 func (mg *MGBenchmark) run() {
-	NV := ONE * (2 + (1 << NDIM1)) * (2 + (1 << NDIM2)) * (2 + (1 << NDIM3))
-	NR := ((NV + NM*NM + 5*NM + 7*LM + 6) / 7) * 8
+	// Calculate problem size dependent constants
+	// LM is log2 of NX (assuming NX = NY = NZ for MG benchmark)
+	mg.lm = log2(mg.nx[mg.lt])
+	mg.lt_default = mg.lm
+	// Ensure lt matches lt_default
+	if mg.lt != mg.lt_default {
+		mg.lt = mg.lt_default
+	}
+	mg.nm = 2 + (1 << mg.lm)
+	mg.maxlevel = mg.lt_default + 1
+	mg.m = mg.nm + 1
+
+	// Resize arrays if needed (should already be done in main.go, but check anyway)
+	if len(mg.nx) < mg.maxlevel+1 {
+		mg.nx = make([]int, mg.maxlevel+1)
+		mg.ny = make([]int, mg.maxlevel+1)
+		mg.nz = make([]int, mg.maxlevel+1)
+		mg.m1 = make([]int, mg.maxlevel+1)
+		mg.m2 = make([]int, mg.maxlevel+1)
+		mg.m3 = make([]int, mg.maxlevel+1)
+		mg.ir = make([]int, mg.maxlevel+1)
+	}
+
+	// Calculate NV and NR based on actual problem size (NX, NY, NZ)
+	// NDIM1, NDIM2, NDIM3 are log2 of NX, NY, NZ respectively
+	// So (1 << NDIM1) = NX, (1 << NDIM2) = NY, (1 << NDIM3) = NZ
+	NV := ONE * (2 + mg.nx[mg.lt]) * (2 + mg.ny[mg.lt]) * (2 + mg.nz[mg.lt])
+	NR := ((NV + mg.nm*mg.nm + 5*mg.nm + 7*mg.lm + 6) / 7) * 8
 
 	// Allocations
 	if mg.u == nil {
