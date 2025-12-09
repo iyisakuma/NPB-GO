@@ -3,9 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
-	"os"
 	"runtime"
-	"strconv"
 	"sync"
 	"time"
 
@@ -30,7 +28,6 @@ const (
 	T_INIT     = 0
 	T_BENCH    = 1
 	T_LAST     = 10
-	T_COMM3    = 9
 )
 
 // MGBenchmark represents the MG (Multigrid) benchmark
@@ -46,65 +43,78 @@ type MGBenchmark struct {
 	ir         []int
 	m1, m2, m3 []int
 
-	// Auxiliary arrays (Work buffers to avoid allocation in loops)
-	// Size M is sufficient for all levels as M is max dimension
-	u1, u2, r1, r2 []float64
-	z1, z2, z3     []float64
-	x1, y1         []float64
-
 	// Setup variables
 	is1, is2, is3 int // Start indices
 	ie1, ie2, ie3 int // End indices
 	n1, n2, n3    int // Actual array dimensions
 
+	// Parallelism
+	numProcs int
+
 	// Verification
-	verified   bool
-	rnm2       float64
-	rnmu       float64
-	debug_vec  [8]int
-	numWorkers int
-	timerOn    bool
+	verified  bool
+	rnm2      float64
+	rnmu      float64
+	debug_vec [8]int
 }
 
 // NewMGBenchmark creates a new MG benchmark instance
 func NewMGBenchmark() *MGBenchmark {
-	numWorkers := runtime.NumCPU()
-	if nw := os.Getenv("GO_NUM_THREADS"); nw != "" {
-		if n, err := strconv.Atoi(nw); err == nil && n > 0 {
-			numWorkers = n
-		}
-	}
-	timerOn := false
-	if _, err := os.Stat("timer.flag"); err == nil {
-		timerOn = true
-	}
+	// Determina número de CPUs para paralelismo
+	numProcs := runtime.NumCPU()
+	runtime.GOMAXPROCS(numProcs)
 
 	return &MGBenchmark{
-		lt: LT_DEFAULT,
-		lb: 1,
-		nx: make([]int, MAXLEVEL+1),
-		ny: make([]int, MAXLEVEL+1),
-		nz: make([]int, MAXLEVEL+1),
-		m1: make([]int, MAXLEVEL+1),
-		m2: make([]int, MAXLEVEL+1),
-		m3: make([]int, MAXLEVEL+1),
-		ir: make([]int, MAXLEVEL+1),
-		// Pre-allocate work buffers
-		u1:         make([]float64, M),
-		u2:         make([]float64, M),
-		r1:         make([]float64, M),
-		r2:         make([]float64, M),
-		z1:         make([]float64, M),
-		z2:         make([]float64, M),
-		z3:         make([]float64, M),
-		x1:         make([]float64, M),
-		y1:         make([]float64, M),
-		numWorkers: numWorkers,
-		timerOn:    timerOn,
+		lt:       LT_DEFAULT,
+		lb:       1,
+		nx:       make([]int, MAXLEVEL+1),
+		ny:       make([]int, MAXLEVEL+1),
+		nz:       make([]int, MAXLEVEL+1),
+		m1:       make([]int, MAXLEVEL+1),
+		m2:       make([]int, MAXLEVEL+1),
+		m3:       make([]int, MAXLEVEL+1),
+		ir:       make([]int, MAXLEVEL+1),
+		numProcs: numProcs,
 	}
 }
 
+// parallelFor helper to distribute loop iterations
+func (mg *MGBenchmark) parallelFor(start, end int, task func(s, e int)) {
+	total := end - start
+	if total <= 0 {
+		return
+	}
+
+	// Se for pouco trabalho, faz sequencial para evitar overhead
+	if total < mg.numProcs {
+		task(start, end)
+		return
+	}
+
+	chunkSize := (total + mg.numProcs - 1) / mg.numProcs
+	var wg sync.WaitGroup
+
+	for i := 0; i < mg.numProcs; i++ {
+		s := start + i*chunkSize
+		e := s + chunkSize
+		if s >= end {
+			break
+		}
+		if e > end {
+			e = end
+		}
+
+		wg.Add(1)
+		go func(sInt, eInt int) {
+			defer wg.Done()
+			task(sInt, eInt)
+		}(s, e)
+	}
+	wg.Wait()
+}
+
 // calculateIdx calculates 3D array index in a flat slice
+// Inlined manually in critical loops for performance, kept here for utility
 func (mg *MGBenchmark) calculateIdx(i1, i2, i3, n1, n2 int) int {
 	return i3*n2*n1 + i2*n1 + i1
 }
@@ -127,8 +137,9 @@ func (mg *MGBenchmark) power(a float64, n int) float64 {
 }
 
 // zero3 zeros the first n elements of a slice
-// CORREÇÃO CRÍTICA: Aceita 'n' para não zerar grids mais grossos acidentalmente
 func zero3(z []float64, n int) {
+	// O compilador de Go otimiza memclr, geralmente não precisa paralelizar se n for pequeno
+	// Mas para arrays grandes do MG, pode ajudar
 	for i := 0; i < n; i++ {
 		z[i] = 0.0
 	}
@@ -217,7 +228,8 @@ func (mg *MGBenchmark) setup() {
 	}
 }
 
-// zran3 initializes grid with random values and places +1/-1 at extrema
+// zran3 initializes grid. This part is kept mostly serial to ensure same random sequence
+// as the benchmark specification, but buffer filling can be parallelized carefully.
 func (mg *MGBenchmark) zran3(z []float64, n1, n2, n3 int, nx, ny int, k int) {
 	a1 := mg.power(A, nx)
 	a2 := mg.power(A, nx*ny)
@@ -235,11 +247,11 @@ func (mg *MGBenchmark) zran3(z []float64, n1, n2, n3 int, nx, ny int, k int) {
 	x0 := X
 	common.Randlc(&x0, ai)
 
+	// Serial generation to match spec RNG
 	for i3 := 1; i3 < e3; i3++ {
 		x1 := x0
 		for i2 := 1; i2 < e2; i2++ {
 			xx := x1
-			// Slice directly into z to avoid allocation
 			startIdx := mg.calculateIdx(1, i2, i3, n1, n2)
 			common.Vranlc(d1, &xx, A, z[startIdx:startIdx+d1])
 			common.Randlc(&x1, a1)
@@ -255,6 +267,8 @@ func (mg *MGBenchmark) zran3(z []float64, n1, n2, n3 int, nx, ny int, k int) {
 		ten[0][i] = 1.0
 	}
 
+	// This reduction search could be parallelized, but it's tricky with the bubble sort.
+	// Keeping serial for correctness as it runs only once.
 	for i3 := 1; i3 < n3-1; i3++ {
 		for i2 := 1; i2 < n2-1; i2++ {
 			for i1 := 1; i1 < n1-1; i1++ {
@@ -293,138 +307,119 @@ func (mg *MGBenchmark) zran3(z []float64, n1, n2, n3 int, nx, ny int, k int) {
 
 	mg.comm3(z, n1, n2, n3, k)
 }
+
 func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
-	if mg.timerOn {
-		common.TimerStart(T_COMM3)
-	}
-
-	var wg sync.WaitGroup
-	numWorkers := mg.numWorkers
-
-	chunk := (n3 - 2) / numWorkers
-	if chunk == 0 {
-		chunk = 1
-	}
-
-	wg.Add(numWorkers)
-	for workerID := 0; workerID < numWorkers; workerID++ {
-		go func(id int) {
-			defer wg.Done()
-			start := 1 + id*chunk
-			end := start + chunk
-			if id == numWorkers-1 {
-				end = n3 - 1
+	// Parallelize axis 1 loop over i3
+	mg.parallelFor(1, n3-1, func(start, end int) {
+		for i3 := start; i3 < end; i3++ {
+			for i2 := 1; i2 < n2-1; i2++ {
+				idx0 := mg.calculateIdx(0, i2, i3, n1, n2)
+				idx1 := mg.calculateIdx(n1-2, i2, i3, n1, n2)
+				idx2 := mg.calculateIdx(n1-1, i2, i3, n1, n2)
+				idx3 := mg.calculateIdx(1, i2, i3, n1, n2)
+				u[idx0] = u[idx1]
+				u[idx2] = u[idx3]
 			}
+		}
+	})
 
-			for i3 := start; i3 < end; i3++ {
-				// axis = 1: bordas em i1 (i1=0 e i1=n1-1)
-				for i2 := 1; i2 < n2-1; i2++ {
-					idx0 := mg.calculateIdx(0, i2, i3, n1, n2)
-					idx1 := mg.calculateIdx(n1-2, i2, i3, n1, n2)
-					idx2 := mg.calculateIdx(n1-1, i2, i3, n1, n2)
-					idx3 := mg.calculateIdx(1, i2, i3, n1, n2)
-					u[idx0] = u[idx1]
-					u[idx2] = u[idx3]
-				}
-
-				// axis = 2: bordas em i2 (i2=0 e i2=n2-1)
-				// IMPORTANTE: Faz axis=2 logo após axis=1 para o mesmo i3
-				for i1 := 0; i1 < n1; i1++ {
-					idx0 := mg.calculateIdx(i1, 0, i3, n1, n2)
-					idx1 := mg.calculateIdx(i1, n2-2, i3, n1, n2)
-					idx2 := mg.calculateIdx(i1, n2-1, i3, n1, n2)
-					idx3 := mg.calculateIdx(i1, 1, i3, n1, n2)
-					u[idx0] = u[idx1]
-					u[idx2] = u[idx3]
-				}
+	// Parallelize axis 2 loop over i3
+	mg.parallelFor(1, n3-1, func(start, end int) {
+		for i3 := start; i3 < end; i3++ {
+			for i1 := 0; i1 < n1; i1++ {
+				idx0 := mg.calculateIdx(i1, 0, i3, n1, n2)
+				idx1 := mg.calculateIdx(i1, n2-2, i3, n1, n2)
+				idx2 := mg.calculateIdx(i1, n2-1, i3, n1, n2)
+				idx3 := mg.calculateIdx(i1, 1, i3, n1, n2)
+				u[idx0] = u[idx1]
+				u[idx2] = u[idx3]
 			}
-		}(workerID)
-	}
-	wg.Wait() // Garantir que axis=1 e axis=2 terminem antes de axis=3
+		}
+	})
 
-	chunk = n2 / numWorkers
-	if chunk == 0 {
-		chunk = 1
-	}
-
-	wg.Add(numWorkers)
-	for workerID := 0; workerID < numWorkers; workerID++ {
-		go func(id int) {
-			defer wg.Done()
-			start := id * chunk
-			end := start + chunk
-			if id == numWorkers-1 {
-				end = n2
+	// Parallelize axis 3 loop over i2
+	mg.parallelFor(0, n2, func(start, end int) {
+		for i2 := start; i2 < end; i2++ {
+			for i1 := 0; i1 < n1; i1++ {
+				idx0 := mg.calculateIdx(i1, i2, 0, n1, n2)
+				idx1 := mg.calculateIdx(i1, i2, n3-2, n1, n2)
+				idx2 := mg.calculateIdx(i1, i2, n3-1, n1, n2)
+				idx3 := mg.calculateIdx(i1, i2, 1, n1, n2)
+				u[idx0] = u[idx1]
+				u[idx2] = u[idx3]
 			}
-
-			for i2 := start; i2 < end; i2++ {
-				for i1 := 0; i1 < n1; i1++ {
-					// axis = 3: bordas em i3 (i3=0 e i3=n3-1)
-					idx0 := mg.calculateIdx(i1, i2, 0, n1, n2)
-					idx1 := mg.calculateIdx(i1, i2, n3-2, n1, n2)
-					idx2 := mg.calculateIdx(i1, i2, n3-1, n1, n2)
-					idx3 := mg.calculateIdx(i1, i2, 1, n1, n2)
-					u[idx0] = u[idx1]
-					u[idx2] = u[idx3]
-				}
-			}
-		}(workerID)
-	}
-	wg.Wait()
-
-	if mg.timerOn {
-		common.TimerStop(T_COMM3)
-	}
+		}
+	})
 }
+
 func (mg *MGBenchmark) norm2u3(r []float64, n1, n2, n3 int, nx, ny, nz int) (float64, float64) {
 	dn := 1.0 * float64(nx*ny*nz)
-	sum := 0.0
-	rnmu := 0.0
 
-	for i3 := 1; i3 < n3-1; i3++ {
-		for i2 := 1; i2 < n2-1; i2++ {
-			for i1 := 1; i1 < n1-1; i1++ {
-				idx := mg.calculateIdx(i1, i2, i3, n1, n2)
-				val := r[idx]
-				sum += val * val
-				a := math.Abs(val)
-				if a > rnmu {
-					rnmu = a
+	// Reduction variables need explicit handling
+	sumGlobal := 0.0
+	rnmuGlobal := 0.0
+	var mu sync.Mutex
+
+	// Parallelize reduction
+	mg.parallelFor(1, n3-1, func(start, end int) {
+		sumLocal := 0.0
+		rnmuLocal := 0.0
+		for i3 := start; i3 < end; i3++ {
+			for i2 := 1; i2 < n2-1; i2++ {
+				for i1 := 1; i1 < n1-1; i1++ {
+					idx := mg.calculateIdx(i1, i2, i3, n1, n2)
+					val := r[idx]
+					sumLocal += val * val
+					a := math.Abs(val)
+					if a > rnmuLocal {
+						rnmuLocal = a
+					}
 				}
 			}
 		}
-	}
+		mu.Lock()
+		sumGlobal += sumLocal
+		if rnmuLocal > rnmuGlobal {
+			rnmuGlobal = rnmuLocal
+		}
+		mu.Unlock()
+	})
 
-	return math.Sqrt(sum / dn), rnmu
+	return math.Sqrt(sumGlobal / dn), rnmuGlobal
 }
 
 func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k int) {
-	// Reuse pre-allocated buffers
-	u1 := mg.u1[:n1]
-	u2 := mg.u2[:n1]
+	// Parallelizing outer loop i3
+	mg.parallelFor(1, n3-1, func(start, end int) {
+		// PRIVATIZATION: Each thread gets its own scratch buffers
+		// Size M is sufficient (as defined in constants) or n1
+		u1 := make([]float64, n1)
+		u2 := make([]float64, n1)
 
-	for i3 := 1; i3 < n3-1; i3++ {
-		for i2 := 1; i2 < n2-1; i2++ {
-			for i1 := 0; i1 < n1; i1++ {
-				u1[i1] = u[mg.calculateIdx(i1, i2-1, i3, n1, n2)] +
-					u[mg.calculateIdx(i1, i2+1, i3, n1, n2)] +
-					u[mg.calculateIdx(i1, i2, i3-1, n1, n2)] +
-					u[mg.calculateIdx(i1, i2, i3+1, n1, n2)]
+		for i3 := start; i3 < end; i3++ {
+			for i2 := 1; i2 < n2-1; i2++ {
+				for i1 := 0; i1 < n1; i1++ {
+					u1[i1] = u[mg.calculateIdx(i1, i2-1, i3, n1, n2)] +
+						u[mg.calculateIdx(i1, i2+1, i3, n1, n2)] +
+						u[mg.calculateIdx(i1, i2, i3-1, n1, n2)] +
+						u[mg.calculateIdx(i1, i2, i3+1, n1, n2)]
 
-				u2[i1] = u[mg.calculateIdx(i1, i2-1, i3-1, n1, n2)] +
-					u[mg.calculateIdx(i1, i2+1, i3-1, n1, n2)] +
-					u[mg.calculateIdx(i1, i2-1, i3+1, n1, n2)] +
-					u[mg.calculateIdx(i1, i2+1, i3+1, n1, n2)]
-			}
+					u2[i1] = u[mg.calculateIdx(i1, i2-1, i3-1, n1, n2)] +
+						u[mg.calculateIdx(i1, i2+1, i3-1, n1, n2)] +
+						u[mg.calculateIdx(i1, i2-1, i3+1, n1, n2)] +
+						u[mg.calculateIdx(i1, i2+1, i3+1, n1, n2)]
+				}
 
-			for i1 := 1; i1 < n1-1; i1++ {
-				idx := mg.calculateIdx(i1, i2, i3, n1, n2)
-				r[idx] = v[idx] - a[0]*u[idx] -
-					a[2]*(u2[i1]+u1[i1-1]+u1[i1+1]) -
-					a[3]*(u2[i1-1]+u2[i1+1])
+				for i1 := 1; i1 < n1-1; i1++ {
+					idx := mg.calculateIdx(i1, i2, i3, n1, n2)
+					r[idx] = v[idx] - a[0]*u[idx] -
+						a[2]*(u2[i1]+u1[i1-1]+u1[i1+1]) -
+						a[3]*(u2[i1-1]+u2[i1+1])
+				}
 			}
 		}
-	}
+	})
+
 	mg.comm3(r, n1, n2, n3, k)
 
 	if mg.debug_vec[0] >= 1 {
@@ -433,31 +428,36 @@ func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k i
 }
 
 func (mg *MGBenchmark) psinv(r, u []float64, n1, n2, n3 int, c []float64, k int) {
-	r1 := mg.r1[:n1]
-	r2 := mg.r2[:n1]
+	// Parallelizing outer loop i3
+	mg.parallelFor(1, n3-1, func(start, end int) {
+		// PRIVATIZATION: Local buffers
+		r1 := make([]float64, n1)
+		r2 := make([]float64, n1)
 
-	for i3 := 1; i3 < n3-1; i3++ {
-		for i2 := 1; i2 < n2-1; i2++ {
-			for i1 := 0; i1 < n1; i1++ {
-				r1[i1] = r[mg.calculateIdx(i1, i2-1, i3, n1, n2)] +
-					r[mg.calculateIdx(i1, i2+1, i3, n1, n2)] +
-					r[mg.calculateIdx(i1, i2, i3-1, n1, n2)] +
-					r[mg.calculateIdx(i1, i2, i3+1, n1, n2)]
+		for i3 := start; i3 < end; i3++ {
+			for i2 := 1; i2 < n2-1; i2++ {
+				for i1 := 0; i1 < n1; i1++ {
+					r1[i1] = r[mg.calculateIdx(i1, i2-1, i3, n1, n2)] +
+						r[mg.calculateIdx(i1, i2+1, i3, n1, n2)] +
+						r[mg.calculateIdx(i1, i2, i3-1, n1, n2)] +
+						r[mg.calculateIdx(i1, i2, i3+1, n1, n2)]
 
-				r2[i1] = r[mg.calculateIdx(i1, i2-1, i3-1, n1, n2)] +
-					r[mg.calculateIdx(i1, i2+1, i3-1, n1, n2)] +
-					r[mg.calculateIdx(i1, i2-1, i3+1, n1, n2)] +
-					r[mg.calculateIdx(i1, i2+1, i3+1, n1, n2)]
-			}
+					r2[i1] = r[mg.calculateIdx(i1, i2-1, i3-1, n1, n2)] +
+						r[mg.calculateIdx(i1, i2+1, i3-1, n1, n2)] +
+						r[mg.calculateIdx(i1, i2-1, i3+1, n1, n2)] +
+						r[mg.calculateIdx(i1, i2+1, i3+1, n1, n2)]
+				}
 
-			for i1 := 1; i1 < n1-1; i1++ {
-				idx := mg.calculateIdx(i1, i2, i3, n1, n2)
-				u[idx] = u[idx] + c[0]*r[idx] +
-					c[1]*(r[idx-1]+r[idx+1]+r1[i1]) +
-					c[2]*(r2[i1]+r1[i1-1]+r1[i1+1])
+				for i1 := 1; i1 < n1-1; i1++ {
+					idx := mg.calculateIdx(i1, i2, i3, n1, n2)
+					u[idx] = u[idx] + c[0]*r[idx] +
+						c[1]*(r[idx-1]+r[idx+1]+r1[i1]) +
+						c[2]*(r2[i1]+r1[i1-1]+r1[i1+1])
+				}
 			}
 		}
-	}
+	})
+
 	mg.comm3(u, n1, n2, n3, k)
 
 	if mg.debug_vec[0] >= 1 {
@@ -483,45 +483,50 @@ func (mg *MGBenchmark) rprj3(r []float64, m1k, m2k, m3k int, s []float64, m1j, m
 		d3 = 1
 	}
 
-	x1 := mg.x1[:m1k]
-	y1 := mg.y1[:m1k]
+	// Parallelizing loop j3
+	mg.parallelFor(1, m3j-1, func(start, end int) {
+		// PRIVATIZATION: Local buffers
+		x1 := make([]float64, m1k)
+		y1 := make([]float64, m1k)
 
-	for j3 := 1; j3 < m3j-1; j3++ {
-		i3 := 2*j3 - d3
-		for j2 := 1; j2 < m2j-1; j2++ {
-			i2 := 2*j2 - d2
-			for j1 := 1; j1 < m1j; j1++ {
-				i1 := 2*j1 - d1
-				x1[i1] = r[mg.calculateIdx(i1, i2, i3+1, m1k, m2k)] +
-					r[mg.calculateIdx(i1, i2+2, i3+1, m1k, m2k)] +
-					r[mg.calculateIdx(i1, i2+1, i3, m1k, m2k)] +
-					r[mg.calculateIdx(i1, i2+1, i3+2, m1k, m2k)]
+		for j3 := start; j3 < end; j3++ {
+			i3 := 2*j3 - d3
+			for j2 := 1; j2 < m2j-1; j2++ {
+				i2 := 2*j2 - d2
+				for j1 := 1; j1 < m1j; j1++ {
+					i1 := 2*j1 - d1
+					x1[i1] = r[mg.calculateIdx(i1, i2, i3+1, m1k, m2k)] +
+						r[mg.calculateIdx(i1, i2+2, i3+1, m1k, m2k)] +
+						r[mg.calculateIdx(i1, i2+1, i3, m1k, m2k)] +
+						r[mg.calculateIdx(i1, i2+1, i3+2, m1k, m2k)]
 
-				y1[i1] = r[mg.calculateIdx(i1, i2, i3, m1k, m2k)] +
-					r[mg.calculateIdx(i1, i2, i3+2, m1k, m2k)] +
-					r[mg.calculateIdx(i1, i2+2, i3, m1k, m2k)] +
-					r[mg.calculateIdx(i1, i2+2, i3+2, m1k, m2k)]
-			}
+					y1[i1] = r[mg.calculateIdx(i1, i2, i3, m1k, m2k)] +
+						r[mg.calculateIdx(i1, i2, i3+2, m1k, m2k)] +
+						r[mg.calculateIdx(i1, i2+2, i3, m1k, m2k)] +
+						r[mg.calculateIdx(i1, i2+2, i3+2, m1k, m2k)]
+				}
 
-			for j1 := 1; j1 < m1j-1; j1++ {
-				i1 := 2*j1 - d1
-				y2 := r[mg.calculateIdx(i1+1, i2, i3, m1k, m2k)] +
-					r[mg.calculateIdx(i1+1, i2, i3+2, m1k, m2k)] +
-					r[mg.calculateIdx(i1+1, i2+2, i3, m1k, m2k)] +
-					r[mg.calculateIdx(i1+1, i2+2, i3+2, m1k, m2k)]
+				for j1 := 1; j1 < m1j-1; j1++ {
+					i1 := 2*j1 - d1
+					y2 := r[mg.calculateIdx(i1+1, i2, i3, m1k, m2k)] +
+						r[mg.calculateIdx(i1+1, i2, i3+2, m1k, m2k)] +
+						r[mg.calculateIdx(i1+1, i2+2, i3, m1k, m2k)] +
+						r[mg.calculateIdx(i1+1, i2+2, i3+2, m1k, m2k)]
 
-				x2 := r[mg.calculateIdx(i1+1, i2, i3+1, m1k, m2k)] +
-					r[mg.calculateIdx(i1+1, i2+2, i3+1, m1k, m2k)] +
-					r[mg.calculateIdx(i1+1, i2+1, i3, m1k, m2k)] +
-					r[mg.calculateIdx(i1+1, i2+1, i3+2, m1k, m2k)]
+					x2 := r[mg.calculateIdx(i1+1, i2, i3+1, m1k, m2k)] +
+						r[mg.calculateIdx(i1+1, i2+2, i3+1, m1k, m2k)] +
+						r[mg.calculateIdx(i1+1, i2+1, i3, m1k, m2k)] +
+						r[mg.calculateIdx(i1+1, i2+1, i3+2, m1k, m2k)]
 
-				ridx := mg.calculateIdx(i1+1, i2+1, i3+1, m1k, m2k)
-				sidx := mg.calculateIdx(j1, j2, j3, m1j, m2j)
+					ridx := mg.calculateIdx(i1+1, i2+1, i3+1, m1k, m2k)
+					sidx := mg.calculateIdx(j1, j2, j3, m1j, m2j)
 
-				s[sidx] = 0.5*r[ridx] + 0.25*(r[ridx-1]+r[ridx+1]+x2) + 0.125*(x1[i1]+x1[i1+2]+y2) + 0.0625*(y1[i1]+y1[i1+2])
+					s[sidx] = 0.5*r[ridx] + 0.25*(r[ridx-1]+r[ridx+1]+x2) + 0.125*(x1[i1]+x1[i1+2]+y2) + 0.0625*(y1[i1]+y1[i1+2])
+				}
 			}
 		}
-	}
+	})
+
 	mg.comm3(s, m1j, m2j, m3j, k-1)
 
 	if mg.debug_vec[0] >= 1 {
@@ -533,46 +538,49 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 	var d1, d2, d3, t1, t2, t3 int
 
 	if n1 != 3 && n2 != 3 && n3 != 3 {
-		z1 := mg.z1[:mm1]
-		z2 := mg.z2[:mm1]
-		z3 := mg.z3[:mm1]
+		// Parallelizing loop i3
+		mg.parallelFor(0, mm3-1, func(start, end int) {
+			// PRIVATIZATION
+			z1 := make([]float64, mm1)
+			z2 := make([]float64, mm1)
+			z3 := make([]float64, mm1)
 
-		for i3 := 0; i3 < mm3-1; i3++ {
-			for i2 := 0; i2 < mm2-1; i2++ {
-				for i1 := 0; i1 < mm1; i1++ {
-					idx1 := mg.calculateIdx(i1, i2+1, i3, mm1, mm2)
-					idx2 := mg.calculateIdx(i1, i2, i3, mm1, mm2)
-					z1[i1] = z[idx1] + z[idx2]
+			for i3 := start; i3 < end; i3++ {
+				for i2 := 0; i2 < mm2-1; i2++ {
+					for i1 := 0; i1 < mm1; i1++ {
+						idx1 := mg.calculateIdx(i1, i2+1, i3, mm1, mm2)
+						idx2 := mg.calculateIdx(i1, i2, i3, mm1, mm2)
+						z1[i1] = z[idx1] + z[idx2]
 
-					idx3 := mg.calculateIdx(i1, i2, i3+1, mm1, mm2)
-					z2[i1] = z[idx3] + z[idx2]
+						idx3 := mg.calculateIdx(i1, i2, i3+1, mm1, mm2)
+						z2[i1] = z[idx3] + z[idx2]
 
-					idx4 := mg.calculateIdx(i1, i2+1, i3+1, mm1, mm2)
-					// CORREÇÃO AQUI: Usar idx3 em vez de idx1
-					z3[i1] = z[idx4] + z[idx3] + z1[i1]
-				}
+						idx4 := mg.calculateIdx(i1, i2+1, i3+1, mm1, mm2)
+						z3[i1] = z[idx4] + z[idx3] + z1[i1]
+					}
 
-				for i1 := 0; i1 < mm1-1; i1++ {
-					zidx := mg.calculateIdx(i1, i2, i3, mm1, mm2)
-					u[mg.calculateIdx(2*i1, 2*i2, 2*i3, n1, n2)] += z[zidx]
-					u[mg.calculateIdx(2*i1+1, 2*i2, 2*i3, n1, n2)] += 0.5 * (z[mg.calculateIdx(i1+1, i2, i3, mm1, mm2)] + z[zidx])
-				}
-				for i1 := 0; i1 < mm1-1; i1++ {
-					u[mg.calculateIdx(2*i1, 2*i2+1, 2*i3, n1, n2)] += 0.5 * z1[i1]
-					u[mg.calculateIdx(2*i1+1, 2*i2+1, 2*i3, n1, n2)] += 0.25 * (z1[i1] + z1[i1+1])
-				}
-				for i1 := 0; i1 < mm1-1; i1++ {
-					u[mg.calculateIdx(2*i1, 2*i2, 2*i3+1, n1, n2)] += 0.5 * z2[i1]
-					u[mg.calculateIdx(2*i1+1, 2*i2, 2*i3+1, n1, n2)] += 0.25 * (z2[i1] + z2[i1+1])
-				}
-				for i1 := 0; i1 < mm1-1; i1++ {
-					u[mg.calculateIdx(2*i1, 2*i2+1, 2*i3+1, n1, n2)] += 0.25 * z3[i1]
-					u[mg.calculateIdx(2*i1+1, 2*i2+1, 2*i3+1, n1, n2)] += 0.125 * (z3[i1] + z3[i1+1])
+					for i1 := 0; i1 < mm1-1; i1++ {
+						zidx := mg.calculateIdx(i1, i2, i3, mm1, mm2)
+						u[mg.calculateIdx(2*i1, 2*i2, 2*i3, n1, n2)] += z[zidx]
+						u[mg.calculateIdx(2*i1+1, 2*i2, 2*i3, n1, n2)] += 0.5 * (z[mg.calculateIdx(i1+1, i2, i3, mm1, mm2)] + z[zidx])
+					}
+					for i1 := 0; i1 < mm1-1; i1++ {
+						u[mg.calculateIdx(2*i1, 2*i2+1, 2*i3, n1, n2)] += 0.5 * z1[i1]
+						u[mg.calculateIdx(2*i1+1, 2*i2+1, 2*i3, n1, n2)] += 0.25 * (z1[i1] + z1[i1+1])
+					}
+					for i1 := 0; i1 < mm1-1; i1++ {
+						u[mg.calculateIdx(2*i1, 2*i2, 2*i3+1, n1, n2)] += 0.5 * z2[i1]
+						u[mg.calculateIdx(2*i1+1, 2*i2, 2*i3+1, n1, n2)] += 0.25 * (z2[i1] + z2[i1+1])
+					}
+					for i1 := 0; i1 < mm1-1; i1++ {
+						u[mg.calculateIdx(2*i1, 2*i2+1, 2*i3+1, n1, n2)] += 0.25 * z3[i1]
+						u[mg.calculateIdx(2*i1+1, 2*i2+1, 2*i3+1, n1, n2)] += 0.125 * (z3[i1] + z3[i1+1])
+					}
 				}
 			}
-		}
+		})
 	} else {
-		// (Bloco else mantido igual à correção anterior de índices)
+		// (Bloco else mantido, poderia ser paralelizado similarmente se necessário)
 		if n1 == 3 {
 			d1, t1 = 2, 1
 		} else {
@@ -681,7 +689,6 @@ func (mg *MGBenchmark) mg3P(u, v, r []float64, a, c []float64, n1, n2, n3 int, k
 	uk := mg.u[mg.ir[k]:]
 	rk := mg.r[mg.ir[k]:]
 
-	// CRITICAL FIX: Only zero the size of this level
 	sizeK := mg.m1[k] * mg.m2[k] * mg.m3[k]
 	zero3(uk, sizeK)
 
@@ -693,7 +700,6 @@ func (mg *MGBenchmark) mg3P(u, v, r []float64, a, c []float64, n1, n2, n3 int, k
 		uj := mg.u[mg.ir[j]:]
 		rk := mg.r[mg.ir[k]:]
 
-		// CRITICAL FIX: Only zero the size of this level
 		sizeK = mg.m1[k] * mg.m2[k] * mg.m3[k]
 		zero3(uk, sizeK)
 
@@ -762,9 +768,10 @@ func (mg *MGBenchmark) run() {
 
 	mg.rnm2, mg.rnmu = mg.norm2u3(mg.v, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
 
-	fmt.Printf("\n\n NAS Parallel Benchmarks 4.1 Serial Go version - MG Benchmark\n\n")
+	fmt.Printf("\n\n NAS Parallel Benchmarks 4.1 Parallel Go version - MG Benchmark\n\n")
 	fmt.Printf(" Size: %3dx%3dx%3d (class %s)\n", mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt], mg.class)
 	fmt.Printf(" Iterations: %3d\n", mg.nit)
+	fmt.Printf(" Workers:    %d\n", mg.numProcs)
 
 	mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
 	mg.rnm2, mg.rnmu = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
@@ -785,8 +792,6 @@ func (mg *MGBenchmark) run() {
 	for it := 1; it <= mg.nit; it++ {
 		mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
 		mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
-		//x, y := mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
-		//fmt.Printf("It: %d  norms =%21.14e%21.14e\n ", it, x, y)
 	}
 	elapsed := time.Since(startTime).Seconds()
 
