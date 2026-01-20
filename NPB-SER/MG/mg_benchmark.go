@@ -11,21 +11,13 @@ import (
 
 // Constants
 const (
-	LM         = 5
-	LT_DEFAULT = 5
-	NDIM1      = 5
-	NDIM2      = 5
-	NDIM3      = 5
-	NM         = 2 + (1 << LM)
-	ONE        = 1
-	MAXLEVEL   = LT_DEFAULT + 1
-	M          = NM + 1
-	MM         = 10
-	A          = 1220703125.0 // pow(5.0, 13.0)
-	X          = 314159265.0
-	T_INIT     = 0
-	T_BENCH    = 1
-	T_LAST     = 10
+	ONE     = 1
+	MM      = 10
+	A       = 1220703125.0 // pow(5.0, 13.0)
+	X       = 314159265.0
+	T_INIT  = 0
+	T_BENCH = 1
+	T_LAST  = 10
 )
 
 // MGBenchmark represents the MG (Multigrid) benchmark
@@ -41,16 +33,24 @@ type MGBenchmark struct {
 	ir         []int
 	m1, m2, m3 []int
 
-	// Auxiliary arrays (Work buffers to avoid allocation in loops)
-	// Size M is sufficient for all levels as M is max dimension
-	u1, u2, r1, r2 []float64
-	z1, z2, z3     []float64
-	x1, y1         []float64
+	// Scratch buffers (Replaces thread-local allocations)
+	// These are allocated once to max dimension size to avoid GC overhead
+	u1, u2     []float64
+	r1, r2     []float64
+	x1, y1     []float64 // for rprj3
+	z1, z2, z3 []float64 // for interp
 
 	// Setup variables
 	is1, is2, is3 int // Start indices
 	ie1, ie2, ie3 int // End indices
 	n1, n2, n3    int // Actual array dimensions
+
+	// Problem size dependent constants
+	lm         int // log2 of NX
+	lt_default int // Same as lm
+	nm         int // 2 + (1 << lm)
+	maxlevel   int // lt_default + 1
+	m          int // nm + 1
 
 	// Verification
 	verified  bool
@@ -59,28 +59,30 @@ type MGBenchmark struct {
 	debug_vec [8]int
 }
 
+// log2 calculates log base 2 of an integer
+func log2(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	result := 0
+	for n > 1 {
+		n >>= 1
+		result++
+	}
+	return result
+}
+
 // NewMGBenchmark creates a new MG benchmark instance
 func NewMGBenchmark() *MGBenchmark {
 	return &MGBenchmark{
-		lt: LT_DEFAULT,
 		lb: 1,
-		nx: make([]int, MAXLEVEL+1),
-		ny: make([]int, MAXLEVEL+1),
-		nz: make([]int, MAXLEVEL+1),
-		m1: make([]int, MAXLEVEL+1),
-		m2: make([]int, MAXLEVEL+1),
-		m3: make([]int, MAXLEVEL+1),
-		ir: make([]int, MAXLEVEL+1),
-		// Pre-allocate work buffers
-		u1: make([]float64, M),
-		u2: make([]float64, M),
-		r1: make([]float64, M),
-		r2: make([]float64, M),
-		z1: make([]float64, M),
-		z2: make([]float64, M),
-		z3: make([]float64, M),
-		x1: make([]float64, M),
-		y1: make([]float64, M),
+		nx: make([]int, 0),
+		ny: make([]int, 0),
+		nz: make([]int, 0),
+		m1: make([]int, 0),
+		m2: make([]int, 0),
+		m3: make([]int, 0),
+		ir: make([]int, 0),
 	}
 }
 
@@ -107,14 +109,13 @@ func (mg *MGBenchmark) power(a float64, n int) float64 {
 }
 
 // zero3 zeros the first n elements of a slice
-// CORREÇÃO CRÍTICA: Aceita 'n' para não zerar grids mais grossos acidentalmente
 func zero3(z []float64, n int) {
 	for i := 0; i < n; i++ {
 		z[i] = 0.0
 	}
 }
 
-// bubble does a bubble sort. Receives pointers to fixed arrays.
+// bubble does a bubble sort.
 func (mg *MGBenchmark) bubble(ten *[2][MM]float64, j1, j2, j3 *[2][MM]int, m, ind int) {
 	if ind == 1 {
 		for i := 0; i < m-1; i++ {
@@ -145,7 +146,7 @@ func (mg *MGBenchmark) bubble(ten *[2][MM]float64, j1, j2, j3 *[2][MM]int, m, in
 
 // setup calculates grid sizes and offsets for all levels
 func (mg *MGBenchmark) setup() {
-	ng := make([][]int, MAXLEVEL+1)
+	ng := make([][]int, mg.maxlevel+1)
 	for i := range ng {
 		ng[i] = make([]int, 3)
 	}
@@ -166,7 +167,7 @@ func (mg *MGBenchmark) setup() {
 		mg.nz[k] = ng[k][2]
 	}
 
-	mi := make([][]int, MAXLEVEL+1)
+	mi := make([][]int, mg.maxlevel+1)
 	for i := range mi {
 		mi[i] = make([]int, 3)
 	}
@@ -191,13 +192,28 @@ func (mg *MGBenchmark) setup() {
 	mg.ie3 = 1 + ng[k][2]
 	mg.n3 = 3 + mg.ie3 - mg.is3
 
+	// Offset calculation
 	mg.ir[mg.lt] = 0
 	for j := mg.lt - 1; j >= 1; j-- {
 		mg.ir[j] = mg.ir[j+1] + ONE*mg.m1[j+1]*mg.m2[j+1]*mg.m3[j+1]
 	}
+
+	// Work array resize (Optimization: Allocate once based on max dimension)
+	maxDim := mg.m1[mg.lt]
+	if len(mg.u1) < maxDim {
+		mg.u1 = make([]float64, maxDim)
+		mg.u2 = make([]float64, maxDim)
+		mg.r1 = make([]float64, maxDim)
+		mg.r2 = make([]float64, maxDim)
+		mg.x1 = make([]float64, maxDim)
+		mg.y1 = make([]float64, maxDim)
+		mg.z1 = make([]float64, maxDim)
+		mg.z2 = make([]float64, maxDim)
+		mg.z3 = make([]float64, maxDim)
+	}
 }
 
-// zran3 initializes grid with random values and places +1/-1 at extrema
+// zran3 initializes grid.
 func (mg *MGBenchmark) zran3(z []float64, n1, n2, n3 int, nx, ny int, k int) {
 	a1 := mg.power(A, nx)
 	a2 := mg.power(A, nx*ny)
@@ -219,7 +235,6 @@ func (mg *MGBenchmark) zran3(z []float64, n1, n2, n3 int, nx, ny int, k int) {
 		x1 := x0
 		for i2 := 1; i2 < e2; i2++ {
 			xx := x1
-			// Slice directly into z to avoid allocation
 			startIdx := mg.calculateIdx(1, i2, i3, n1, n2)
 			common.Vranlc(d1, &xx, A, z[startIdx:startIdx+d1])
 			common.Randlc(&x1, a1)
@@ -275,7 +290,7 @@ func (mg *MGBenchmark) zran3(z []float64, n1, n2, n3 int, nx, ny int, k int) {
 }
 
 func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
-	// axis = 1
+	// Axis 1
 	for i3 := 1; i3 < n3-1; i3++ {
 		for i2 := 1; i2 < n2-1; i2++ {
 			idx0 := mg.calculateIdx(0, i2, i3, n1, n2)
@@ -286,7 +301,8 @@ func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
 			u[idx2] = u[idx3]
 		}
 	}
-	// axis = 2
+
+	// Axis 2
 	for i3 := 1; i3 < n3-1; i3++ {
 		for i1 := 0; i1 < n1; i1++ {
 			idx0 := mg.calculateIdx(i1, 0, i3, n1, n2)
@@ -297,7 +313,8 @@ func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
 			u[idx2] = u[idx3]
 		}
 	}
-	// axis = 3
+
+	// Axis 3
 	for i2 := 0; i2 < n2; i2++ {
 		for i1 := 0; i1 < n1; i1++ {
 			idx0 := mg.calculateIdx(i1, i2, 0, n1, n2)
@@ -312,30 +329,31 @@ func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
 
 func (mg *MGBenchmark) norm2u3(r []float64, n1, n2, n3 int, nx, ny, nz int) (float64, float64) {
 	dn := 1.0 * float64(nx*ny*nz)
-	sum := 0.0
-	rnmu := 0.0
+
+	sumGlobal := 0.0
+	rnmuGlobal := 0.0
 
 	for i3 := 1; i3 < n3-1; i3++ {
 		for i2 := 1; i2 < n2-1; i2++ {
 			for i1 := 1; i1 < n1-1; i1++ {
 				idx := mg.calculateIdx(i1, i2, i3, n1, n2)
 				val := r[idx]
-				sum += val * val
+				sumGlobal += val * val
 				a := math.Abs(val)
-				if a > rnmu {
-					rnmu = a
+				if a > rnmuGlobal {
+					rnmuGlobal = a
 				}
 			}
 		}
 	}
 
-	return math.Sqrt(sum / dn), rnmu
+	return math.Sqrt(sumGlobal / dn), rnmuGlobal
 }
 
 func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k int) {
-	// Reuse pre-allocated buffers
-	u1 := mg.u1[:n1]
-	u2 := mg.u2[:n1]
+	// Use pre-allocated scratch buffers
+	u1 := mg.u1
+	u2 := mg.u2
 
 	for i3 := 1; i3 < n3-1; i3++ {
 		for i2 := 1; i2 < n2-1; i2++ {
@@ -359,6 +377,7 @@ func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k i
 			}
 		}
 	}
+
 	mg.comm3(r, n1, n2, n3, k)
 
 	if mg.debug_vec[0] >= 1 {
@@ -367,8 +386,9 @@ func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k i
 }
 
 func (mg *MGBenchmark) psinv(r, u []float64, n1, n2, n3 int, c []float64, k int) {
-	r1 := mg.r1[:n1]
-	r2 := mg.r2[:n1]
+	// Use pre-allocated scratch buffers
+	r1 := mg.r1
+	r2 := mg.r2
 
 	for i3 := 1; i3 < n3-1; i3++ {
 		for i2 := 1; i2 < n2-1; i2++ {
@@ -392,6 +412,7 @@ func (mg *MGBenchmark) psinv(r, u []float64, n1, n2, n3 int, c []float64, k int)
 			}
 		}
 	}
+
 	mg.comm3(u, n1, n2, n3, k)
 
 	if mg.debug_vec[0] >= 1 {
@@ -417,8 +438,9 @@ func (mg *MGBenchmark) rprj3(r []float64, m1k, m2k, m3k int, s []float64, m1j, m
 		d3 = 1
 	}
 
-	x1 := mg.x1[:m1k]
-	y1 := mg.y1[:m1k]
+	// Use pre-allocated scratch buffers
+	x1 := mg.x1
+	y1 := mg.y1
 
 	for j3 := 1; j3 < m3j-1; j3++ {
 		i3 := 2*j3 - d3
@@ -456,6 +478,7 @@ func (mg *MGBenchmark) rprj3(r []float64, m1k, m2k, m3k int, s []float64, m1j, m
 			}
 		}
 	}
+
 	mg.comm3(s, m1j, m2j, m3j, k-1)
 
 	if mg.debug_vec[0] >= 1 {
@@ -467,9 +490,10 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 	var d1, d2, d3, t1, t2, t3 int
 
 	if n1 != 3 && n2 != 3 && n3 != 3 {
-		z1 := mg.z1[:mm1]
-		z2 := mg.z2[:mm1]
-		z3 := mg.z3[:mm1]
+		// Use pre-allocated buffers
+		z1 := mg.z1
+		z2 := mg.z2
+		z3 := mg.z3
 
 		for i3 := 0; i3 < mm3-1; i3++ {
 			for i2 := 0; i2 < mm2-1; i2++ {
@@ -482,7 +506,6 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 					z2[i1] = z[idx3] + z[idx2]
 
 					idx4 := mg.calculateIdx(i1, i2+1, i3+1, mm1, mm2)
-					// CORREÇÃO AQUI: Usar idx3 em vez de idx1
 					z3[i1] = z[idx4] + z[idx3] + z1[i1]
 				}
 
@@ -506,7 +529,7 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 			}
 		}
 	} else {
-		// (Bloco else mantido igual à correção anterior de índices)
+		// Single processor / small grid handling (keeps existing logic)
 		if n1 == 3 {
 			d1, t1 = 2, 1
 		} else {
@@ -615,7 +638,6 @@ func (mg *MGBenchmark) mg3P(u, v, r []float64, a, c []float64, n1, n2, n3 int, k
 	uk := mg.u[mg.ir[k]:]
 	rk := mg.r[mg.ir[k]:]
 
-	// CRITICAL FIX: Only zero the size of this level
 	sizeK := mg.m1[k] * mg.m2[k] * mg.m3[k]
 	zero3(uk, sizeK)
 
@@ -627,7 +649,6 @@ func (mg *MGBenchmark) mg3P(u, v, r []float64, a, c []float64, n1, n2, n3 int, k
 		uj := mg.u[mg.ir[j]:]
 		rk := mg.r[mg.ir[k]:]
 
-		// CRITICAL FIX: Only zero the size of this level
 		sizeK = mg.m1[k] * mg.m2[k] * mg.m3[k]
 		zero3(uk, sizeK)
 
@@ -651,17 +672,53 @@ func (mg *MGBenchmark) rep_nrm(u []float64, n1, n2, n3 int, title string, kk int
 }
 
 func (mg *MGBenchmark) run() {
-	NV := ONE * (2 + (1 << NDIM1)) * (2 + (1 << NDIM2)) * (2 + (1 << NDIM3))
-	NR := ((NV + NM*NM + 5*NM + 7*LM + 6) / 7) * 8
+	// Calculate problem size dependent constants
+	mg.lm = log2(mg.nx[mg.lt])
+	mg.lt_default = mg.lm
+	if mg.lt != mg.lt_default {
+		mg.lt = mg.lt_default
+	}
+	mg.nm = 2 + (1 << mg.lm)
+	mg.maxlevel = mg.lt_default + 1
+	mg.m = mg.nm + 1
+
+	// Resize arrays
+	if len(mg.nx) < mg.maxlevel+1 {
+		mg.nx = make([]int, mg.maxlevel+1)
+		mg.ny = make([]int, mg.maxlevel+1)
+		mg.nz = make([]int, mg.maxlevel+1)
+		mg.m1 = make([]int, mg.maxlevel+1)
+		mg.m2 = make([]int, mg.maxlevel+1)
+		mg.m3 = make([]int, mg.maxlevel+1)
+		mg.ir = make([]int, mg.maxlevel+1)
+	}
+
+	// Calculate correct memory sizes for the whole V-Cycle
+	// NV is size of the finest grid
+	NV := ONE * (2 + mg.nx[mg.lt]) * (2 + mg.ny[mg.lt]) * (2 + mg.nz[mg.lt])
+
+	// setup() calculates IR offsets, so we run it first to know total size
+	mg.setup()
+
+	// NR is total size of all grids combined (based on offsets calculated in setup)
+	// mg.ir[1] is the offset start of the last level (coarsest), so we add its size
+	NR := mg.ir[1] + mg.m1[1]*mg.m2[1]*mg.m3[1]
+	// Safety buffer to match Fortran/C standard allocation style if needed,
+	// but using calculated size is more precise.
+	// Ensuring we cover at least the standard calculation:
+	standardNR := ((NV + mg.nm*mg.nm + 5*mg.nm + 7*mg.lm + 6) / 7) * 8
+	if standardNR > NR {
+		NR = standardNR
+	}
 
 	// Allocations
-	if mg.u == nil {
+	if mg.u == nil || len(mg.u) < NR {
 		mg.u = make([]float64, NR)
 	}
-	if mg.v == nil {
+	if mg.v == nil || len(mg.v) < NV {
 		mg.v = make([]float64, NV)
 	}
-	if mg.r == nil {
+	if mg.r == nil || len(mg.r) < NR {
 		mg.r = make([]float64, NR)
 	}
 	if mg.a == nil {
@@ -688,9 +745,9 @@ func (mg *MGBenchmark) run() {
 		mg.c[3] = 0.0
 	}
 
+	// Re-run setup to ensure scratch buffers are sized if anything changed
 	mg.setup()
 
-	// Initialize arrays. Using len(mg.u) here is safe as it's the first init.
 	zero3(mg.u, len(mg.u))
 	mg.zran3(mg.v, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.lt)
 
@@ -719,8 +776,6 @@ func (mg *MGBenchmark) run() {
 	for it := 1; it <= mg.nit; it++ {
 		mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
 		mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
-		//x, y := mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
-		//fmt.Printf("It: %d  norms =%21.14e%21.14e\n ", it, x, y)
 	}
 	elapsed := time.Since(startTime).Seconds()
 
@@ -748,5 +803,5 @@ func (mg *MGBenchmark) run() {
 		mops = 58.0 * float64(mg.nit) * nn * 1.0e-6 / elapsed
 	}
 
-	common.PrintResults("MG", mg.class, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt], mg.nit, elapsed, mops, "floating point", mg.verified, "4.1", "Unknown", "Go", "")
+	common.PrintResults("MG", mg.class, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt], mg.nit, elapsed, mops, "floating point", mg.verified, "4.1", "Serial", "Go", "")
 }

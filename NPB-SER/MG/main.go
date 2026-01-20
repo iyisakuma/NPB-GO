@@ -13,19 +13,37 @@ func main() {
 		fmt.Println("where: <class> is \"S\", \"W\", \"A\", \"B\", \"C\", \"D\" or \"E\"")
 		return
 	}
-
 	// Create benchmark instance
 	mg := NewMGBenchmark()
-	// Initialize nx, ny, nz arrays (will be set properly in setup)
-	mg.nx = make([]int, MAXLEVEL+1)
-	mg.ny = make([]int, MAXLEVEL+1)
-	mg.nz = make([]int, MAXLEVEL+1)
 	mg.nit = params.NIT
 	mg.class = params.CLASS
-	// Store initial values at top level (lt = LT_DEFAULT = 5)
-	mg.nx[mg.lt] = params.NX
-	mg.ny[mg.lt] = params.NY
-	mg.nz[mg.lt] = params.NZ
+	mg.debug_vec[0] = 0 // Ativa os prints de rep_nrm
+
+	// Calculate LM and LT_DEFAULT based on problem size
+	// LM is log2 of NX (assuming NX = NY = NZ for MG benchmark)
+	lm := 0
+	for n := params.NX; n > 1; n >>= 1 {
+		lm++
+	}
+
+	// Set lt and lt_default
+	mg.lt = lm
+	mg.lt_default = lm
+
+	// Initialize arrays with correct size
+	maxlevel := lm + 1
+	mg.nx = make([]int, maxlevel+1)
+	mg.ny = make([]int, maxlevel+1)
+	mg.nz = make([]int, maxlevel+1)
+	mg.m1 = make([]int, maxlevel+1)
+	mg.m2 = make([]int, maxlevel+1)
+	mg.m3 = make([]int, maxlevel+1)
+	mg.ir = make([]int, maxlevel+1)
+
+	// Store initial values at top level (will be set properly in setup())
+	mg.nx[lm] = params.NX
+	mg.ny[lm] = params.NY
+	mg.nz[lm] = params.NZ
 	mg.debug_vec[0] = 0 // Ativa os prints de rep_nrm
 	// Run benchmark
 	mg.run()
