@@ -59,19 +59,6 @@ type MGBenchmark struct {
 	debug_vec [8]int
 }
 
-// log2 calculates log base 2 of an integer
-func log2(n int) int {
-	if n <= 0 {
-		return 0
-	}
-	result := 0
-	for n > 1 {
-		n >>= 1
-		result++
-	}
-	return result
-}
-
 // NewMGBenchmark creates a new MG benchmark instance
 func NewMGBenchmark() *MGBenchmark {
 	return &MGBenchmark{
@@ -351,7 +338,6 @@ func (mg *MGBenchmark) norm2u3(r []float64, n1, n2, n3 int, nx, ny, nz int) (flo
 }
 
 func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k int) {
-	// Use pre-allocated scratch buffers
 	u1 := mg.u1
 	u2 := mg.u2
 
@@ -673,7 +659,9 @@ func (mg *MGBenchmark) rep_nrm(u []float64, n1, n2, n3 int, title string, kk int
 
 func (mg *MGBenchmark) run() {
 	// Calculate problem size dependent constants
-	mg.lm = log2(mg.nx[mg.lt])
+	common.TimerStart(T_INIT)
+
+	mg.lm = int(math.Log2(float64(mg.nx[mg.lt])))
 	mg.lt_default = mg.lm
 	if mg.lt != mg.lt_default {
 		mg.lt = mg.lt_default
@@ -693,19 +681,11 @@ func (mg *MGBenchmark) run() {
 		mg.ir = make([]int, mg.maxlevel+1)
 	}
 
-	// Calculate correct memory sizes for the whole V-Cycle
-	// NV is size of the finest grid
 	NV := ONE * (2 + mg.nx[mg.lt]) * (2 + mg.ny[mg.lt]) * (2 + mg.nz[mg.lt])
 
-	// setup() calculates IR offsets, so we run it first to know total size
 	mg.setup()
 
-	// NR is total size of all grids combined (based on offsets calculated in setup)
-	// mg.ir[1] is the offset start of the last level (coarsest), so we add its size
 	NR := mg.ir[1] + mg.m1[1]*mg.m2[1]*mg.m3[1]
-	// Safety buffer to match Fortran/C standard allocation style if needed,
-	// but using calculated size is more precise.
-	// Ensuring we cover at least the standard calculation:
 	standardNR := ((NV + mg.nm*mg.nm + 5*mg.nm + 7*mg.lm + 6) / 7) * 8
 	if standardNR > NR {
 		NR = standardNR
@@ -745,14 +725,12 @@ func (mg *MGBenchmark) run() {
 		mg.c[3] = 0.0
 	}
 
-	// Re-run setup to ensure scratch buffers are sized if anything changed
 	mg.setup()
 
 	zero3(mg.u, len(mg.u))
 	mg.zran3(mg.v, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.lt)
 
 	mg.rnm2, mg.rnmu = mg.norm2u3(mg.v, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
-
 	fmt.Printf("\n\n NAS Parallel Benchmarks 4.1 Serial Go version - MG Benchmark\n\n")
 	fmt.Printf(" Size: %3dx%3dx%3d (class %s)\n", mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt], mg.class)
 	fmt.Printf(" Iterations: %3d\n", mg.nit)
@@ -771,9 +749,18 @@ func (mg *MGBenchmark) run() {
 
 	mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
 	mg.rnm2, mg.rnmu = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
+	common.TimerStop(T_INIT)
 
+	tinit := common.TimerRead(T_INIT)
+	fmt.Printf(" Initialization time: %15.3f seconds\n", tinit)
+	for i := T_BENCH; i < T_LAST; i++ {
+		common.TimerClear(i)
+	}
 	startTime := time.Now()
 	for it := 1; it <= mg.nit; it++ {
+		if it == 1 || it == mg.nit || it%5 == 0 {
+			fmt.Printf("\t iter %3d\n", it)
+		}
 		mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
 		mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
 	}

@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -15,13 +17,13 @@ import (
 const (
 	// LM and LT_DEFAULT are now calculated dynamically based on problem size
 	// NDIM1, NDIM2, NDIM3 are no longer used as constants (calculated from NX, NY, NZ)
-	ONE        = 1
-	MM         = 10
-	A          = 1220703125.0 // pow(5.0, 13.0)
-	X          = 314159265.0
-	T_INIT     = 0
-	T_BENCH    = 1
-	T_LAST     = 10
+	ONE     = 1
+	MM      = 10
+	A       = 1220703125.0 // pow(5.0, 13.0)
+	X       = 314159265.0
+	T_INIT  = 0
+	T_BENCH = 1
+	T_LAST  = 10
 )
 
 // MGBenchmark represents the MG (Multigrid) benchmark
@@ -59,24 +61,14 @@ type MGBenchmark struct {
 	debug_vec [8]int
 }
 
-// log2 calculates log base 2 of an integer
-func log2(n int) int {
-	if n <= 0 {
-		return 0
-	}
-	result := 0
-	for n > 1 {
-		n >>= 1
-		result++
-	}
-	return result
-}
-
 // NewMGBenchmark creates a new MG benchmark instance
 func NewMGBenchmark() *MGBenchmark {
-	// Determina número de CPUs para paralelismo
-	numProcs := runtime.NumCPU()
-	runtime.GOMAXPROCS(numProcs)
+	numWorkers := runtime.NumCPU()
+	if nw := os.Getenv("GO_NUM_GOROUTINE"); nw != "" {
+		if n, err := strconv.Atoi(nw); err == nil && n > 0 {
+			numWorkers = n
+		}
+	}
 
 	return &MGBenchmark{
 		lb:       1,
@@ -87,7 +79,7 @@ func NewMGBenchmark() *MGBenchmark {
 		m2:       make([]int, 0),
 		m3:       make([]int, 0),
 		ir:       make([]int, 0),
-		numProcs: numProcs,
+		numProcs: numWorkers,
 	}
 }
 
@@ -151,8 +143,6 @@ func (mg *MGBenchmark) power(a float64, n int) float64 {
 
 // zero3 zeros the first n elements of a slice
 func zero3(z []float64, n int) {
-	// O compilador de Go otimiza memclr, geralmente não precisa paralelizar se n for pequeno
-	// Mas para arrays grandes do MG, pode ajudar
 	for i := 0; i < n; i++ {
 		z[i] = 0.0
 	}
@@ -736,9 +726,8 @@ func (mg *MGBenchmark) rep_nrm(u []float64, n1, n2, n3 int, title string, kk int
 }
 
 func (mg *MGBenchmark) run() {
-	// Calculate problem size dependent constants
-	// LM is log2 of NX (assuming NX = NY = NZ for MG benchmark)
-	mg.lm = log2(mg.nx[mg.lt])
+	common.TimerStart(T_INIT)
+	mg.lm = int(math.Log2(float64(mg.nx[mg.lt])))
 	mg.lt_default = mg.lm
 	// Ensure lt matches lt_default
 	if mg.lt != mg.lt_default {
@@ -826,9 +815,18 @@ func (mg *MGBenchmark) run() {
 
 	mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
 	mg.rnm2, mg.rnmu = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
+	common.TimerStop(T_INIT)
 
+	tinit := common.TimerRead(T_INIT)
+	fmt.Printf(" Initialization time: %15.3f seconds\n", tinit)
+	for i := T_BENCH; i < T_LAST; i++ {
+		common.TimerClear(i)
+	}
 	startTime := time.Now()
 	for it := 1; it <= mg.nit; it++ {
+		if it == 1 || it == mg.nit || it%5 == 0 {
+			fmt.Printf("\t iter %3d\n", it)
+		}
 		mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
 		mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
 	}
