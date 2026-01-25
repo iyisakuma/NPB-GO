@@ -84,7 +84,7 @@ func NewMGBenchmark() *MGBenchmark {
 }
 
 // parallelFor helper to distribute loop iterations
-func (mg *MGBenchmark) parallelFor(start, end int, task func(s, e int)) {
+func (mg *MGBenchmark) parallelFor(start, end int, task func(s, e, goId int)) {
 	total := end - start
 	if total <= 0 {
 		return
@@ -92,7 +92,7 @@ func (mg *MGBenchmark) parallelFor(start, end int, task func(s, e int)) {
 
 	// Se for pouco trabalho, faz sequencial para evitar overhead
 	if total < mg.numProcs {
-		task(start, end)
+		task(start, end, 0)
 		return
 	}
 
@@ -112,7 +112,7 @@ func (mg *MGBenchmark) parallelFor(start, end int, task func(s, e int)) {
 		wg.Add(1)
 		go func(sInt, eInt int) {
 			defer wg.Done()
-			task(sInt, eInt)
+			task(sInt, eInt, i)
 		}(s, e)
 	}
 	wg.Wait()
@@ -313,7 +313,7 @@ func (mg *MGBenchmark) zran3(z []float64, n1, n2, n3 int, nx, ny int, k int) {
 
 func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
 	// Parallelize axis 1 loop over i3
-	mg.parallelFor(1, n3-1, func(start, end int) {
+	mg.parallelFor(1, n3-1, func(start, end, goId int) {
 		for i3 := start; i3 < end; i3++ {
 			for i2 := 1; i2 < n2-1; i2++ {
 				idx0 := mg.calculateIdx(0, i2, i3, n1, n2)
@@ -327,7 +327,7 @@ func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
 	})
 
 	// Parallelize axis 2 loop over i3
-	mg.parallelFor(1, n3-1, func(start, end int) {
+	mg.parallelFor(1, n3-1, func(start, end, goId int) {
 		for i3 := start; i3 < end; i3++ {
 			for i1 := 0; i1 < n1; i1++ {
 				idx0 := mg.calculateIdx(i1, 0, i3, n1, n2)
@@ -341,7 +341,7 @@ func (mg *MGBenchmark) comm3(u []float64, n1, n2, n3 int, kk int) {
 	})
 
 	// Parallelize axis 3 loop over i2
-	mg.parallelFor(0, n2, func(start, end int) {
+	mg.parallelFor(0, n2, func(start, end, goId int) {
 		for i2 := start; i2 < end; i2++ {
 			for i1 := 0; i1 < n1; i1++ {
 				idx0 := mg.calculateIdx(i1, i2, 0, n1, n2)
@@ -363,8 +363,7 @@ func (mg *MGBenchmark) norm2u3(r []float64, n1, n2, n3 int, nx, ny, nz int) (flo
 	rnmuGlobal := 0.0
 	var mu sync.Mutex
 
-	// Parallelize reduction
-	mg.parallelFor(1, n3-1, func(start, end int) {
+	mg.parallelFor(1, n3-1, func(start, end, goId int) {
 		sumLocal := 0.0
 		rnmuLocal := 0.0
 		for i3 := start; i3 < end; i3++ {
@@ -393,7 +392,7 @@ func (mg *MGBenchmark) norm2u3(r []float64, n1, n2, n3 int, nx, ny, nz int) (flo
 
 func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k int) {
 	// Parallelizing outer loop i3
-	mg.parallelFor(1, n3-1, func(start, end int) {
+	mg.parallelFor(1, n3-1, func(start, end, goId int) {
 		// PRIVATIZATION: Each thread gets its own scratch buffers
 		// Size M is sufficient (as defined in constants) or n1
 		u1 := make([]float64, n1)
@@ -432,7 +431,7 @@ func (mg *MGBenchmark) resid(u, v, r []float64, n1, n2, n3 int, a []float64, k i
 
 func (mg *MGBenchmark) psinv(r, u []float64, n1, n2, n3 int, c []float64, k int) {
 	// Parallelizing outer loop i3
-	mg.parallelFor(1, n3-1, func(start, end int) {
+	mg.parallelFor(1, n3-1, func(start, end, goId int) {
 		// PRIVATIZATION: Local buffers
 		r1 := make([]float64, n1)
 		r2 := make([]float64, n1)
@@ -487,7 +486,7 @@ func (mg *MGBenchmark) rprj3(r []float64, m1k, m2k, m3k int, s []float64, m1j, m
 	}
 
 	// Parallelizing loop j3
-	mg.parallelFor(1, m3j-1, func(start, end int) {
+	mg.parallelFor(1, m3j-1, func(start, end, goId int) {
 		// PRIVATIZATION: Local buffers
 		x1 := make([]float64, m1k)
 		y1 := make([]float64, m1k)
@@ -542,7 +541,7 @@ func (mg *MGBenchmark) interp(z []float64, mm1, mm2, mm3 int, u []float64, n1, n
 
 	if n1 != 3 && n2 != 3 && n3 != 3 {
 		// Parallelizing loop i3
-		mg.parallelFor(0, mm3-1, func(start, end int) {
+		mg.parallelFor(0, mm3-1, func(start, end, goId int) {
 			// PRIVATIZATION
 			z1 := make([]float64, mm1)
 			z2 := make([]float64, mm1)
@@ -823,13 +822,16 @@ func (mg *MGBenchmark) run() {
 		common.TimerClear(i)
 	}
 	startTime := time.Now()
-	for it := 1; it <= mg.nit; it++ {
-		if it == 1 || it == mg.nit || it%5 == 0 {
-			fmt.Printf("\t iter %3d\n", it)
+	mg.parallelFor(1, mg.nit, func(start, end, goId int) {
+		for it := start; it <= end; it++ {
+			if (it == 1 || it == mg.nit || it%5 == 0) && goId == 0 {
+				fmt.Printf("\t iter %3d\n", it)
+			}
+			mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
+			mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
 		}
-		mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
-		mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
-	}
+	})
+
 	elapsed := time.Since(startTime).Seconds()
 
 	mg.rnm2, mg.rnmu = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])

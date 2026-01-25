@@ -753,9 +753,7 @@ func (mg *MGBenchmark) run() {
 
 	tinit := common.TimerRead(T_INIT)
 	fmt.Printf(" Initialization time: %15.3f seconds\n", tinit)
-	for i := T_BENCH; i < T_LAST; i++ {
-		common.TimerClear(i)
-	}
+
 	startTime := time.Now()
 	for it := 1; it <= mg.nit; it++ {
 		if it == 1 || it == mg.nit || it%5 == 0 {
