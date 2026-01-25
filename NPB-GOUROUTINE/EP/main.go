@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -191,7 +192,12 @@ func EpParallel() {
 		q[i] = 0.0
 	}
 
-	numCPUs := 128
+	numCPUs := runtime.NumCPU()
+	if nw := os.Getenv("GO_NUM_THREADS"); nw != "" {
+		if n, err := strconv.Atoi(nw); err == nil && n > 0 {
+			numCPUs = n
+		}
+	}
 	runtime.GOMAXPROCS(numCPUs)
 	var wg sync.WaitGroup
 	partialResultsChan := make(chan WorkerResults, numCPUs)
