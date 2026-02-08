@@ -822,16 +822,13 @@ func (mg *MGBenchmark) run() {
 		common.TimerClear(i)
 	}
 	startTime := time.Now()
-	mg.parallelFor(1, mg.nit, func(start, end, goId int) {
-		for it := start; it <= end; it++ {
-			if (it == 1 || it == mg.nit || it%5 == 0) && goId == 0 {
-				fmt.Printf("\t iter %3d\n", it)
-			}
-			mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
-			mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
+	for it := 1; it <= mg.nit; it++ {
+		if it == 1 || it == mg.nit || it%5 == 0 {
+			fmt.Printf("\t iter %3d\n", it)
 		}
-	})
-
+		mg.mg3P(mg.u, mg.v, mg.r, mg.a, mg.c, mg.n1, mg.n2, mg.n3, mg.lt)
+		mg.resid(mg.u, mg.v, mg.r, mg.n1, mg.n2, mg.n3, mg.a, mg.lt)
+	}
 	elapsed := time.Since(startTime).Seconds()
 
 	mg.rnm2, mg.rnmu = mg.norm2u3(mg.r, mg.n1, mg.n2, mg.n3, mg.nx[mg.lt], mg.ny[mg.lt], mg.nz[mg.lt])
