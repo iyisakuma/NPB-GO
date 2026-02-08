@@ -64,7 +64,7 @@ type MGBenchmark struct {
 // NewMGBenchmark creates a new MG benchmark instance
 func NewMGBenchmark() *MGBenchmark {
 	numWorkers := runtime.NumCPU()
-	if nw := os.Getenv("GO_NUM_GOROUTINE"); nw != "" {
+	if nw := os.Getenv("GO_NUM_THREADS"); nw != "" {
 		if n, err := strconv.Atoi(nw); err == nil && n > 0 {
 			numWorkers = n
 		}

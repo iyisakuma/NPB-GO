@@ -3,8 +3,8 @@ CLASS ?= S
 VERBOSE ?= 0
 
 # List of valid kernels
-# KERNELS := EP IS MG FT SP CG
-KERNELS := EP
+# KERNELS := EP IS MG FT CG
+KERNELS := EP IS MG FT CG
 
 # Binary directory
 BINDIR := bin
